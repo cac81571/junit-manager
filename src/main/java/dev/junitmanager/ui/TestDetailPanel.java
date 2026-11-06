@@ -5,6 +5,7 @@ import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.ExecutionOrder;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -258,7 +259,9 @@ public final class TestDetailPanel extends JPanel {
         int failed = node.count(TestStatus.FAILED);
         int skipped = node.count(TestStatus.SKIPPED);
         int notRun = node.count(TestStatus.NOT_RUN);
-        body.setText("テスト " + total + "\n成功 " + passed + "\n失敗 " + failed + "\nスキップ " + skipped + "\n未実行 " + notRun);
+        String summary = "テスト " + total + "\n成功 " + passed + "\n失敗 " + failed + "\nスキップ " + skipped + "\n未実行 " + notRun;
+        String order = ExecutionOrder.description(node);
+        body.setText(order.isEmpty() ? summary : summary + "\n\n" + order);
         failures.clear();
         List<TestNode> failedNodes = new ArrayList<>();
         node.walk(child -> {
@@ -303,10 +306,9 @@ public final class TestDetailPanel extends JPanel {
                     ? "無効なテストです。実行すると JUnit はスキップします。"
                     : "無効: " + node.ignoreReason();
         }
-        if (node.status() == TestStatus.RUNNING) {
-            return "実行中です。";
-        }
-        return "まだ実行していません。";
+        String text = node.status() == TestStatus.RUNNING ? "実行中です。" : "まだ実行していません。";
+        String order = ExecutionOrder.description(node);
+        return order.isEmpty() ? text : text + "\n\n" + order;
     }
 
     private static String format(CaseResult result) {

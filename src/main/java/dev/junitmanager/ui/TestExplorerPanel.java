@@ -5,6 +5,7 @@ import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.ExecutionOrder;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -59,6 +60,9 @@ public final class TestExplorerPanel extends JPanel {
     private final JTabbedPane tabs = new JTabbedPane();
     private final JPanel testTab = new JPanel(new BorderLayout());
     private final JPanel suiteTab = new JPanel(new BorderLayout());
+    private final JPanel orderTab = new JPanel(new BorderLayout());
+    private final JLabel memberHint = new JLabel("", JLabel.CENTER);
+    private final JLabel memberNone = new JLabel("", JLabel.CENTER);
     private final JLabel empty = new JLabel("", JLabel.CENTER);
     private final JLabel project = new JLabel("プロジェクト未選択");
     private final JButton runAll;
@@ -80,8 +84,12 @@ public final class TestExplorerPanel extends JPanel {
     private Workspace workspace;
     private boolean applying;
     private boolean physicalNames;
-    private boolean suiteView;
+    private Page page = Page.TEST;
     private TestNode memberSelection;
+
+    private enum Page {
+        TEST, SUITE, ORDER
+    }
 
     public TestExplorerPanel(UserActions actions) {
         super(new BorderLayout());
@@ -117,17 +125,19 @@ public final class TestExplorerPanel extends JPanel {
         center.add(emptyWrap, EMPTY);
         testTab.setOpaque(false);
         suiteTab.setOpaque(false);
+        orderTab.setOpaque(false);
         tabs.addTab("テスト", testTab);
         tabs.addTab("スイート", suiteTab);
+        tabs.addTab("順序", orderTab);
         tabs.addChangeListener(event -> {
             if (applying) {
                 return;
             }
-            boolean next = tabs.getSelectedIndex() == 1;
-            if (next == suiteView) {
+            Page next = pageAt(tabs.getSelectedIndex());
+            if (next == page) {
                 return;
             }
-            suiteView = next;
+            page = next;
             attachPages();
             reload(false);
             actions.selectNode(selected());
@@ -186,15 +196,28 @@ public final class TestExplorerPanel extends JPanel {
             model.setRoot(root == null ? new DefaultMutableTreeNode(workspace.tree()) : root);
             boolean noTests = workspace.methodCount() == 0;
             boolean noSuites = !hasSuite(workspace.tree());
-            boolean filteredOut = (suiteView ? !noSuites : !noTests) && (root == null || root.getChildCount() == 0);
-            if (suiteView && noSuites) {
+            boolean noOrders = !hasOrder(workspace.tree());
+            boolean expectContent = switch (page) {
+                case SUITE -> !noSuites;
+                case ORDER -> !noOrders;
+                case TEST -> !noTests;
+            };
+            boolean filteredOut = expectContent && (root == null || root.getChildCount() == 0);
+            if (page == Page.SUITE && noSuites) {
                 showEmpty("テストスイートは見つかりませんでした。", false);
                 showMembers(null);
-            } else if (!suiteView && noTests) {
+            } else if (page == Page.ORDER && noOrders) {
+                showEmpty("@TestFactory の順序は見つかりませんでした。", false);
+                showMembers(null);
+            } else if (page == Page.TEST && noTests) {
                 showEmpty("@Test の付いたメソッドは見つかりませんでした。", false);
             } else if (filteredOut) {
-                showEmpty(suiteView ? "一致するスイートがありません。" : "一致するテストがありません。", false);
-                if (suiteView) {
+                showEmpty(switch (page) {
+                    case SUITE -> "一致するスイートがありません。";
+                    case ORDER -> "一致する順序がありません。";
+                    case TEST -> "一致するテストがありません。";
+                }, false);
+                if (page != Page.TEST) {
                     showMembers(null);
                 }
             } else {
@@ -210,10 +233,10 @@ public final class TestExplorerPanel extends JPanel {
                     restoreSelection(selectedNode);
                 } else if (tree.getSelectionPath() == null && model.getRoot() != null) {
                     tree.setSelectionPath(new TreePath(model.getRoot()));
-                    if (suiteView) {
+                    if (page != Page.TEST) {
                         showMembers(selectedFrom(tree));
                     }
-                } else if (suiteView) {
+                } else if (page != Page.TEST) {
                     showMembers(selectedFrom(tree));
                 }
                 if (keepState) {
@@ -231,7 +254,7 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     public TestNode selected() {
-        if (suiteView && memberSelection != null) {
+        if (page != Page.TEST && memberSelection != null) {
             return memberSelection;
         }
         return selectedFrom(tree);
@@ -241,11 +264,14 @@ public final class TestExplorerPanel extends JPanel {
         if (node == null) {
             return;
         }
-        Boolean wantSuite = tabFor(node);
-        if (wantSuite != null && wantSuite != suiteView) {
-            suiteView = wantSuite;
+        Page want = pageFor(node);
+        if (page == Page.ORDER && orderRunner(node) != null) {
+            want = Page.ORDER;
+        }
+        if (want != null && want != page) {
+            page = want;
             applying = true;
-            tabs.setSelectedIndex(wantSuite ? 1 : 0);
+            tabs.setSelectedIndex(indexOf(want));
             applying = false;
             attachPages();
             reload(false);
@@ -253,17 +279,29 @@ public final class TestExplorerPanel extends JPanel {
         cards.show(center, TREE);
         applying = true;
         try {
-            if (suiteView && node.ancestor(TestKind.SUITE) != null && node.kind() != TestKind.SUITE) {
+            if (page == Page.SUITE && node.ancestor(TestKind.SUITE) != null && node.kind() != TestKind.SUITE) {
                 TestNode suite = node.ancestor(TestKind.SUITE);
                 selectIdentity(suite);
                 showMembers(suite);
                 selectMember(node);
+            } else if (page == Page.ORDER && node.kind() != TestKind.CLASS) {
+                TestNode runner = ExecutionOrder.isRunner(node.ancestor(TestKind.CLASS))
+                        ? node.ancestor(TestKind.CLASS)
+                        : orderRunner(node);
+                if (runner != null) {
+                    selectIdentity(runner);
+                    showMembers(runner);
+                    if (orderRunner(node) != null) {
+                        selectMember(node);
+                    }
+                }
             } else {
                 if (selectedFrom(tree) != node) {
                     selectIdentity(node);
                 }
-                if (suiteView) {
-                    showMembers(node.kind() == TestKind.SUITE ? node : null);
+                if (page != Page.TEST) {
+                    boolean show = node.kind() == TestKind.SUITE || ExecutionOrder.isRunner(node);
+                    showMembers(show ? node : null);
                 }
             }
         } finally {
@@ -271,14 +309,34 @@ public final class TestExplorerPanel extends JPanel {
         }
     }
 
-    private static Boolean tabFor(TestNode node) {
+    private Page pageFor(TestNode node) {
         if (node.ancestor(TestKind.SUITE) != null) {
-            return true;
+            return Page.SUITE;
+        }
+        TestNode type = node.kind() == TestKind.CLASS ? node : node.ancestor(TestKind.CLASS);
+        if (ExecutionOrder.isRunner(type)) {
+            return Page.ORDER;
         }
         if (node.kind() == TestKind.CLASS || node.kind() == TestKind.METHOD) {
-            return false;
+            return Page.TEST;
         }
         return null;
+    }
+
+    private static Page pageAt(int index) {
+        return switch (index) {
+            case 1 -> Page.SUITE;
+            case 2 -> Page.ORDER;
+            default -> Page.TEST;
+        };
+    }
+
+    private static int indexOf(Page page) {
+        return switch (page) {
+            case SUITE -> 1;
+            case ORDER -> 2;
+            case TEST -> 0;
+        };
     }
 
     public int showingCount() {
@@ -390,7 +448,7 @@ public final class TestExplorerPanel extends JPanel {
                 actions.selectNode(node);
                 return;
             }
-            if (suiteView) {
+            if (page != Page.TEST) {
                 showMembers(selectedFrom(target));
             }
             actions.selectNode(selected());
@@ -416,14 +474,12 @@ public final class TestExplorerPanel extends JPanel {
         JLabel title = new JLabel("実行されるテスト");
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         title.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
-        JLabel hint = new JLabel("スイートを選ぶと、実行されるクラスとメソッドを表示します。", JLabel.CENTER);
-        hint.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
-        JLabel none = new JLabel("このスイートが実行するテストはありません。", JLabel.CENTER);
-        none.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
+        memberHint.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
+        memberNone.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
         memberCenter.setOpaque(false);
         memberCenter.add(new JScrollPane(memberTree), TREE);
-        memberCenter.add(hint, "hint");
-        memberCenter.add(none, "none");
+        memberCenter.add(memberHint, "hint");
+        memberCenter.add(memberNone, "none");
         memberCards.show(memberCenter, "hint");
         JPanel members = new JPanel(new BorderLayout());
         members.setOpaque(false);
@@ -442,6 +498,12 @@ public final class TestExplorerPanel extends JPanel {
         try {
             memberTree.clearSelection();
             memberSelection = null;
+            if (page == Page.ORDER) {
+                showOrderMembers(selection);
+                return;
+            }
+            memberHint.setText("スイートを選ぶと、実行されるクラスとメソッドを表示します。");
+            memberNone.setText("このスイートが実行するテストはありません。");
             TestNode suite = selection == null ? null : selection.kind() == TestKind.SUITE ? selection : selection.ancestor(TestKind.SUITE);
             if (suite == null) {
                 memberModel.setRoot(new DefaultMutableTreeNode());
@@ -473,17 +535,77 @@ public final class TestExplorerPanel extends JPanel {
         }
     }
 
+    private void showOrderMembers(TestNode selection) {
+        memberHint.setText("順序を選ぶと、order.csv のテストを表示します。");
+        memberNone.setText("order.csv に実行するテストはありません。");
+        TestNode runner = selection != null && ExecutionOrder.isRunner(selection) ? selection : null;
+        if (runner == null || workspace == null) {
+            memberModel.setRoot(new DefaultMutableTreeNode());
+            memberCards.show(memberCenter, "hint");
+            return;
+        }
+        String query = filter.getText().trim();
+        boolean runnerMatch = query.isEmpty() || matches(runner, query);
+        TestStatus status = selectedStatus();
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode(runner);
+        for (TestNode method : ExecutionOrder.targets(workspace, runner)) {
+            TestNode type = method.ancestor(TestKind.CLASS);
+            boolean nameOk = runnerMatch || matches(method, query) || (type != null && matches(type, query));
+            boolean statusOk = status == null || method.status() == status;
+            if (nameOk && statusOk) {
+                root.add(new DefaultMutableTreeNode(method));
+            }
+        }
+        memberModel.setRoot(root);
+        if (root.getChildCount() == 0) {
+            memberCards.show(memberCenter, "none");
+            return;
+        }
+        memberCards.show(memberCenter, TREE);
+        for (int i = 0; i < memberTree.getRowCount(); i++) {
+            memberTree.expandRow(i);
+        }
+    }
+
+    private TestNode orderRunner(TestNode node) {
+        if (node == null || workspace == null || node.kind() != TestKind.METHOD) {
+            return null;
+        }
+        TestNode[] found = new TestNode[1];
+        workspace.tree().walk(candidate -> {
+            if (found[0] == null && ExecutionOrder.isRunner(candidate) && ExecutionOrder.targets(workspace, candidate).contains(node)) {
+                found[0] = candidate;
+            }
+        });
+        return found[0];
+    }
+
     private void restoreSelection(TestNode node) {
         TestNode suite = node.ancestor(TestKind.SUITE);
-        if (suiteView && suite != null && node.kind() != TestKind.SUITE) {
+        if (page == Page.SUITE && suite != null && node.kind() != TestKind.SUITE) {
             selectIdentity(suite);
             showMembers(suite);
             selectMember(node);
             return;
         }
+        if (page == Page.ORDER && node.kind() != TestKind.CLASS) {
+            TestNode runner = ExecutionOrder.isRunner(node.ancestor(TestKind.CLASS))
+                    ? node.ancestor(TestKind.CLASS)
+                    : orderRunner(node);
+            if (runner != null) {
+                selectIdentity(runner);
+                showMembers(runner);
+                if (orderRunner(node) != null) {
+                    selectMember(node);
+                }
+                return;
+            }
+        }
         selectIdentity(node);
-        if (suiteView) {
+        if (page == Page.SUITE) {
             showMembers(node.kind() == TestKind.SUITE ? node : null);
+        } else if (page == Page.ORDER) {
+            showMembers(ExecutionOrder.isRunner(node) ? node : null);
         }
     }
 
@@ -555,15 +677,28 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     private DefaultMutableTreeNode build(TestNode node, String query, TestStatus status, boolean ancestorMatch) {
-        if (!suiteView && node.kind() == TestKind.SUITE) {
+        if (page != Page.SUITE && node.kind() == TestKind.SUITE) {
             return null;
         }
-        if (suiteView && node.ancestor(TestKind.SUITE) == null && node.kind() != TestKind.ROOT
+        if (page == Page.TEST && ExecutionOrder.isRunner(node)) {
+            return null;
+        }
+        if (page == Page.SUITE && node.ancestor(TestKind.SUITE) == null && node.kind() != TestKind.ROOT
                 && node.kind() != TestKind.MODULE && node.kind() != TestKind.PACKAGE && node.kind() != TestKind.SUITE) {
             return null;
         }
-        if (suiteView && node.kind() == TestKind.SUITE) {
+        if (page == Page.ORDER && node.kind() != TestKind.ROOT && node.kind() != TestKind.MODULE
+                && node.kind() != TestKind.PACKAGE && !ExecutionOrder.isRunner(node)) {
+            return null;
+        }
+        if (page == Page.SUITE && node.kind() == TestKind.SUITE) {
             if (!includeSuite(node, query, status, ancestorMatch)) {
+                return null;
+            }
+            return new DefaultMutableTreeNode(node);
+        }
+        if (page == Page.ORDER && ExecutionOrder.isRunner(node)) {
+            if (!includeOrder(node, query, status, ancestorMatch)) {
                 return null;
             }
             return new DefaultMutableTreeNode(node);
@@ -608,6 +743,27 @@ public final class TestExplorerPanel extends JPanel {
                     return true;
                 }
             } else if (includeSuite(child, query, status, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean includeOrder(TestNode runner, String query, TestStatus status, boolean ancestorMatch) {
+        if (query.isEmpty() && status == null) {
+            return true;
+        }
+        if ((ancestorMatch || matches(runner, query)) && (status == null || runner.status() == status)) {
+            return true;
+        }
+        if (workspace == null) {
+            return false;
+        }
+        for (TestNode method : ExecutionOrder.targets(workspace, runner)) {
+            TestNode type = method.ancestor(TestKind.CLASS);
+            boolean nameOk = query.isEmpty() || matches(method, query) || matches(runner, query) || (type != null && matches(type, query));
+            boolean statusOk = status == null || method.status() == status || runner.status() == status;
+            if (nameOk && statusOk) {
                 return true;
             }
         }
@@ -747,17 +903,20 @@ public final class TestExplorerPanel extends JPanel {
         if (center.getParent() != null) {
             center.getParent().remove(center);
         }
-        if (suiteView) {
+        if (page == Page.TEST) {
+            testTab.add(center, BorderLayout.CENTER);
+        } else {
+            JPanel host = page == Page.SUITE ? suiteTab : orderTab;
             suiteSplit.setTopComponent(center);
-            if (suiteSplit.getParent() != suiteTab) {
-                suiteTab.removeAll();
-                suiteTab.add(suiteSplit, BorderLayout.CENTER);
+            if (suiteSplit.getParent() != host) {
+                if (suiteSplit.getParent() instanceof JPanel previous) {
+                    previous.remove(suiteSplit);
+                }
+                host.add(suiteSplit, BorderLayout.CENTER);
             }
             if (suiteSplit.getDividerLocation() <= 0) {
                 SwingUtilities.invokeLater(() -> suiteSplit.setDividerLocation(0.42));
             }
-        } else {
-            testTab.add(center, BorderLayout.CENTER);
         }
         tabs.revalidate();
         tabs.repaint();
@@ -769,6 +928,18 @@ public final class TestExplorerPanel extends JPanel {
         }
         for (TestNode child : node.children()) {
             if (hasSuite(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasOrder(TestNode node) {
+        if (ExecutionOrder.isRunner(node)) {
+            return true;
+        }
+        for (TestNode child : node.children()) {
+            if (hasOrder(child)) {
                 return true;
             }
         }
@@ -813,8 +984,11 @@ public final class TestExplorerPanel extends JPanel {
 
     private int countMethods(DefaultMutableTreeNode node) {
         TestNode test = nodeOf(node);
-        if (suiteView && test != null && test.kind() == TestKind.SUITE) {
+        if (page == Page.SUITE && test != null && test.kind() == TestKind.SUITE) {
             return test.methodCount();
+        }
+        if (page == Page.ORDER && test != null && ExecutionOrder.isRunner(test) && workspace != null) {
+            return ExecutionOrder.targets(workspace, test).size();
         }
         int count = test != null && test.kind() == TestKind.METHOD ? 1 : 0;
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -837,7 +1011,7 @@ public final class TestExplorerPanel extends JPanel {
             }
             TestStatus shown = displayedStatus(tree, node);
             setIcon(AppIcon.status(shown, spin));
-            String label = treeLabel(node);
+            String label = treeLabel(tree, node);
             String order = node.hasOrder() ? Integer.toString(node.order()) : "";
             String duration = displayedDuration(tree, node);
             plain = plainLabel(order, label, duration);
@@ -884,22 +1058,103 @@ public final class TestExplorerPanel extends JPanel {
         }
     }
 
-    private String treeLabel(TestNode node) {
-        return physicalNames ? node.name() : node.displayName();
+    private String treeLabel(JTree source, TestNode node) {
+        String label = physicalNames ? node.name() : node.displayName();
+        if (source == memberTree && page == Page.ORDER && node.kind() == TestKind.METHOD && node.fqcn() != null) {
+            int split = Math.max(node.fqcn().lastIndexOf('.'), node.fqcn().lastIndexOf('$'));
+            String type = split >= 0 ? node.fqcn().substring(split + 1) : node.fqcn();
+            return type + " · " + label;
+        }
+        return label;
     }
 
     private TestStatus displayedStatus(JTree source, TestNode node) {
-        if (source == tree && suiteView && suiteContainer(node)) {
+        if (source == tree && page == Page.SUITE && suiteContainer(node)) {
             return node.statusAmongSuites();
+        }
+        if (source == tree && page == Page.ORDER && suiteContainer(node)) {
+            return statusAmongOrders(node);
         }
         return node.status();
     }
 
     private String displayedDuration(JTree source, TestNode node) {
-        if (source == tree && suiteView && suiteContainer(node)) {
+        if (source == tree && page == Page.SUITE && suiteContainer(node)) {
             return DurationFormat.of(node.durationAmongSuites());
         }
+        if (source == tree && page == Page.ORDER && suiteContainer(node)) {
+            return DurationFormat.of(durationAmongOrders(node));
+        }
         return node.durationLabel();
+    }
+
+    private TestStatus statusAmongOrders(TestNode node) {
+        if (ExecutionOrder.isRunner(node) || node.status() == TestStatus.RUNNING) {
+            return node.status();
+        }
+        boolean failed = false;
+        boolean notRun = false;
+        boolean passed = false;
+        boolean skipped = false;
+        boolean any = false;
+        for (TestNode child : node.children()) {
+            if (child.kind() == TestKind.SUITE || child.kind() == TestKind.METHOD) {
+                continue;
+            }
+            if (child.kind() == TestKind.CLASS && !ExecutionOrder.isRunner(child)) {
+                continue;
+            }
+            any = true;
+            switch (statusAmongOrders(child)) {
+                case FAILED -> failed = true;
+                case RUNNING -> {
+                }
+                case NOT_RUN -> notRun = true;
+                case PASSED -> passed = true;
+                case SKIPPED -> skipped = true;
+            }
+        }
+        if (!any) {
+            return TestStatus.NOT_RUN;
+        }
+        if (failed) {
+            return TestStatus.FAILED;
+        }
+        if (notRun) {
+            return TestStatus.NOT_RUN;
+        }
+        if (passed) {
+            return TestStatus.PASSED;
+        }
+        if (skipped) {
+            return TestStatus.SKIPPED;
+        }
+        return TestStatus.NOT_RUN;
+    }
+
+    private long durationAmongOrders(TestNode node) {
+        if (ExecutionOrder.isRunner(node)) {
+            return node.durationMillis();
+        }
+        long duration = 0;
+        boolean any = false;
+        boolean complete = true;
+        for (TestNode child : node.children()) {
+            if (child.kind() == TestKind.SUITE || child.kind() == TestKind.METHOD) {
+                continue;
+            }
+            if (child.kind() == TestKind.CLASS && !ExecutionOrder.isRunner(child)) {
+                continue;
+            }
+            long childDuration = durationAmongOrders(child);
+            if (childDuration < 0) {
+                complete = false;
+                continue;
+            }
+            any = true;
+            duration += childDuration;
+        }
+        return any && complete ? duration : -1;
     }
 
     private static boolean suiteContainer(TestNode node) {
@@ -912,10 +1167,10 @@ public final class TestExplorerPanel extends JPanel {
             case MODULE -> "モジュール";
             case PACKAGE -> "パッケージ";
             case SUITE -> "スイート";
-            case CLASS -> "クラス";
+            case CLASS -> ExecutionOrder.isRunner(node) ? "順序" : "クラス";
             case METHOD -> "テスト";
         };
-        StringBuilder text = new StringBuilder(kind).append('\n').append(treeLabel(node));
+        StringBuilder text = new StringBuilder(kind).append('\n').append(physicalNames ? node.name() : node.displayName());
         if (!node.name().equals(node.displayName())) {
             text.append('\n').append(physicalNames ? node.displayName() : node.name());
         }

@@ -24,7 +24,7 @@ class MainFrameSmokeTest {
         System.setProperty("junitmanager.noexit", "true");
         try {
             Path example = Path.of("examples/calculator").toAbsolutePath().normalize();
-            assertEquals(5, TestDiscovery.discover(example).methodCount());
+            assertEquals(6, TestDiscovery.discover(example).methodCount());
             CountDownLatch latch = new CountDownLatch(1);
             AtomicInteger shown = new AtomicInteger();
             SwingUtilities.invokeAndWait(() -> {
@@ -36,7 +36,7 @@ class MainFrameSmokeTest {
                 });
             });
             assertTrue(latch.await(20, TimeUnit.SECONDS));
-            assertEquals(5, shown.get());
+            assertEquals(6, shown.get());
         } finally {
             System.clearProperty("junitmanager.settings");
         }
