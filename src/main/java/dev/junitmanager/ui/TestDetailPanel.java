@@ -262,9 +262,13 @@ public final class TestDetailPanel extends JPanel {
         failures.clear();
         List<TestNode> failedNodes = new ArrayList<>();
         node.walk(child -> {
-            if (child.kind() == TestKind.METHOD && child.status() == TestStatus.FAILED) {
-                failedNodes.add(child);
+            if (child.kind() != TestKind.METHOD || child.status() != TestStatus.FAILED) {
+                return;
             }
+            if (node.kind() != TestKind.SUITE && node.ancestor(TestKind.SUITE) == null && child.ancestor(TestKind.SUITE) != null) {
+                return;
+            }
+            failedNodes.add(child);
         });
         for (TestNode failedNode : failedNodes) {
             failures.addElement(failedNode);

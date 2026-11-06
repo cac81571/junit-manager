@@ -7,8 +7,10 @@ import dev.junitmanager.model.Workspace;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -30,7 +32,7 @@ public final class RunPlans {
             if (target == null || target.kind() == TestKind.ROOT) {
                 return all();
             }
-            return new Spec(Kind.NODE, target.key());
+            return new Spec(Kind.NODE, target.runKey());
         }
 
         public static Spec failed() {
@@ -45,7 +47,8 @@ public final class RunPlans {
             List<Path> reportModules,
             List<TestNode> scope,
             boolean clearSynthetics,
-            boolean broadened
+            boolean broadened,
+            TestNode suite
     ) {
     }
 
@@ -54,7 +57,7 @@ public final class RunPlans {
             return null;
         }
         return switch (spec.kind) {
-            case ALL -> fromMethods(workspace, "すべてのテスト", workspace.realMethods(), null, true, debug, false);
+            case ALL -> fromMethods(workspace, "すべてのテスト", workspace.realMethods(), null, true, debug, false, null);
             case FAILED -> failed(workspace, debug);
             case NODE -> node(workspace, workspace.findMethod(spec.nodeKey), debug);
         };
@@ -76,7 +79,7 @@ public final class RunPlans {
         if (methods.isEmpty()) {
             return null;
         }
-        return fromMethods(workspace, "失敗したテスト", new ArrayList<>(methods), methodSelector(methods), false, debug, false);
+        return fromMethods(workspace, "失敗したテスト", new ArrayList<>(methods), methodSelector(methods), false, debug, false, null);
     }
 
     private static Plan node(Workspace workspace, TestNode node, boolean debug) {
@@ -87,8 +90,8 @@ public final class RunPlans {
             node = node.parent();
         }
         return switch (node.kind()) {
-            case ROOT -> fromMethods(workspace, "すべてのテスト", workspace.realMethods(), null, true, debug, false);
-            case MODULE -> fromMethods(workspace, node.displayName(), node.realMethods(), null, true, debug, false);
+            case ROOT -> fromMethods(workspace, "すべてのテスト", workspace.realMethods(), null, true, debug, false, null);
+            case MODULE -> fromMethods(workspace, node.displayName(), node.realMethods(), null, true, debug, false, null);
             case PACKAGE -> fromMethods(
                     workspace,
                     node.displayName(),
@@ -96,10 +99,11 @@ public final class RunPlans {
                     classSelector(node.realMethods(), true),
                     true,
                     debug,
-                    false
+                    false,
+                    null
             );
-            case SUITE -> fromMethods(workspace, node.fqcn(), scopeOf(workspace, node), node.fqcn(), true, debug, false);
-            case CLASS -> fromMethods(workspace, node.fqcn(), scopeOf(workspace, node), node.fqcn(), true, debug, false);
+            case SUITE -> fromMethods(workspace, node.fqcn(), scopeOf(workspace, node), node.fqcn(), true, debug, false, node);
+            case CLASS -> classPlan(workspace, node, debug);
             case METHOD -> fromMethods(
                     workspace,
                     node.fqcn() + "#" + node.methodName(),
@@ -107,9 +111,22 @@ public final class RunPlans {
                     node.fqcn() + "#" + node.methodName(),
                     false,
                     debug,
-                    false
+                    false,
+                    null
             );
         };
+    }
+
+    private static Plan classPlan(Workspace workspace, TestNode node, boolean debug) {
+        List<TestNode> methods = scopeOf(workspace, node);
+        if (node.ancestor(TestKind.SUITE) == null) {
+            return fromMethods(workspace, node.fqcn(), methods, node.fqcn(), true, debug, false, null);
+        }
+        String selector = methodSelector(methods);
+        if (selector.isBlank()) {
+            return null;
+        }
+        return fromMethods(workspace, selector, methods, selector, true, debug, false, null);
     }
 
     private static List<TestNode> scopeOf(Workspace workspace, TestNode node) {
@@ -121,13 +138,21 @@ public final class RunPlans {
         for (TestNode method : methods) {
             keys.add(method.key());
         }
-        List<TestNode> canonical = new ArrayList<>();
+        Map<String, TestNode> canonical = new LinkedHashMap<>();
         for (TestNode method : workspace.realMethods()) {
             if (keys.contains(method.key())) {
-                canonical.add(method);
+                canonical.putIfAbsent(method.key(), method);
             }
         }
-        return canonical.isEmpty() ? methods : canonical;
+        if (canonical.isEmpty()) {
+            return methods;
+        }
+        List<TestNode> ordered = new ArrayList<>();
+        for (TestNode method : methods) {
+            TestNode source = canonical.get(method.key());
+            ordered.add(source != null ? source : method);
+        }
+        return ordered;
     }
 
     private static Plan fromMethods(
@@ -137,7 +162,8 @@ public final class RunPlans {
             String selector,
             boolean clearSynthetics,
             boolean debug,
-            boolean broadened
+            boolean broadened,
+            TestNode suite
     ) {
         if (methods.isEmpty() && selector == null && !"すべてのテスト".equals(label)) {
             return null;
@@ -183,7 +209,7 @@ public final class RunPlans {
         if (modules.isEmpty()) {
             modules.add(directory);
         }
-        return new Plan(label, directory, args, List.copyOf(modules), List.copyOf(methods), clearSynthetics, widened);
+        return new Plan(label, directory, args, List.copyOf(modules), List.copyOf(methods), clearSynthetics, widened, suite);
     }
 
     private static Path commonModule(List<TestNode> methods, Path root) {

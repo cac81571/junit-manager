@@ -115,6 +115,7 @@ public final class MainFrame extends JFrame implements UserActions {
         explorer.setPhysicalNames(settings.physicalNames());
         setIconImages(windowIcons());
         SwingUtilities.updateComponentTreeUI(this);
+        explorer.applyTheme();
         sourceDialog.applyTheme();
         output.applyTheme();
         updateActions();
@@ -395,6 +396,17 @@ public final class MainFrame extends JFrame implements UserActions {
         }
     }
 
+    private TestNode runTarget(RunPlans.Spec spec) {
+        if (workspace == null || spec == null) {
+            return null;
+        }
+        return switch (spec.kind()) {
+            case NODE -> workspace.findNode(spec.nodeKey());
+            case ALL -> workspace.tree();
+            case FAILED -> null;
+        };
+    }
+
     private void run(RunPlans.Spec spec, boolean debug) {
         if (workspace == null || discovering || running) {
             return;
@@ -405,8 +417,8 @@ public final class MainFrame extends JFrame implements UserActions {
             return;
         }
         lastSpec = spec;
-        boolean structural = ResultApplier.markRunning(plan.scope(), plan.clearSynthetics());
-        explorer.reload(structural);
+        ResultApplier.markRunning(plan.scope(), plan.clearSynthetics(), plan.suite(), runTarget(spec));
+        explorer.reload(true);
         detail.refresh();
         running = true;
         updateActions();
@@ -434,15 +446,15 @@ public final class MainFrame extends JFrame implements UserActions {
         if (error != null) {
             String message = error instanceof IOException io ? MavenCommands.explain(io) : rootMessage(error);
             output.append(message + "\n");
-            ResultApplier.apply(workspace, plan.scope(), List.of());
-            explorer.reload(false);
+            ResultApplier.apply(workspace, plan.scope(), List.of(), plan.suite());
+            explorer.reload(true);
             detail.refresh();
             setPlainStatus(message);
             updateActions();
             return;
         }
-        boolean structural = ResultApplier.apply(workspace, plan.scope(), result.tests());
-        explorer.reload(structural);
+        ResultApplier.apply(workspace, plan.scope(), result.tests(), plan.suite());
+        explorer.reload(true);
         detail.refresh();
         if (result.cancelled()) {
             output.append("停止しました。\n");
@@ -515,6 +527,18 @@ public final class MainFrame extends JFrame implements UserActions {
         explorer.setBusy(discovering, running);
     }
 
+    @Override
+    public void clearResults() {
+        if (workspace == null || discovering || running) {
+            return;
+        }
+        workspace.clearResults();
+        explorer.reload(true);
+        TestNode selected = explorer.selected();
+        detail.show(selected == null ? workspace.tree() : selected, workspace);
+        showSummary();
+    }
+
     private void clearOutput() {
         output.clear();
     }
@@ -532,6 +556,8 @@ public final class MainFrame extends JFrame implements UserActions {
         run.add(item("失敗を再実行", KeyStroke.getKeyStroke(KeyEvent.VK_F7, 0), this::runFailed));
         run.add(item("デバッグ", KeyStroke.getKeyStroke(KeyEvent.VK_F5, shortcut()), this::debugSelected));
         run.add(item("停止", KeyStroke.getKeyStroke(KeyEvent.VK_F5, KeyEvent.SHIFT_DOWN_MASK), this::stop));
+        run.addSeparator();
+        run.add(item("結果をクリア", null, this::clearResults));
         JMenu view = new JMenu("表示");
         view.add(item("再検出", KeyStroke.getKeyStroke(KeyEvent.VK_R, shortcut() | KeyEvent.SHIFT_DOWN_MASK), this::refresh));
         view.add(item("フィルター", KeyStroke.getKeyStroke(KeyEvent.VK_F, shortcut()), () -> explorer.filterField().requestFocusInWindow()));
@@ -541,6 +567,7 @@ public final class MainFrame extends JFrame implements UserActions {
             settings.save();
             ThemeManager.install(settings.dark());
             SwingUtilities.updateComponentTreeUI(this);
+            explorer.applyTheme();
             sourceDialog.applyTheme();
             output.applyTheme();
             split.setBorder(null);
@@ -657,8 +684,8 @@ public final class MainFrame extends JFrame implements UserActions {
                 JUnit Manager は Maven プロジェクトの JUnit を、VS Code のテストタブのように一覧して実行します。
 
                 1. プロジェクトを開くで、pom.xml があるフォルダを選びます。フォルダのドロップもできます。
-                2. src/test/java の @Test などがツリーに並びます。表示メニューで、@DisplayName とクラス名・メソッド名を切り替えられます。
-                3. 実行すると mvn test が走り、失敗のメッセージとスタックトレースを表示します。
+                2. 「テスト」タブに @Test などが並びます。「スイート」タブには @Suite のクラスだけが出て、実行されるクラスとメソッドは下の枠です。表示メニューで、@DisplayName とクラス名・メソッド名を切り替えられます。
+                3. 実行すると mvn test が走り、失敗のメッセージとスタックトレースを表示します。実行メニューの「結果をクリア」で、成功・失敗の表示を未実行に戻せます。
                 4. スタックトレースの行をクリックすると、そのソースを開きます。表示メニューで外部エディタ（サクラエディタなど）に切り替えられます。
                 5. 変更を監視すると、ソース保存後に直前のテストを再実行します。
                 6. デバッグはポート 5005 で待ち受けます。IDE のリモートデバッグから接続してください。

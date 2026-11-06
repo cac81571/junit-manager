@@ -17,6 +17,8 @@ public interface UserActions {
 
     void refresh();
 
+    void clearResults();
+
     void watch(boolean enabled);
 
     void runNode(TestNode node, boolean debug);

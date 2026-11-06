@@ -3,7 +3,10 @@ package dev.junitmanager.discover;
 import dev.junitmanager.model.Framework;
 import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
+import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.ReportedTest;
+import dev.junitmanager.run.ResultApplier;
 import dev.junitmanager.run.RunPlans;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -226,6 +229,190 @@ class TestDiscoveryTest {
         assertEquals("com.example.ATest$Inner", inner.fqcn());
         assertEquals(List.of("inner"), inner.children().stream().map(TestNode::methodName).toList());
         assertEquals(3, suite.methodCount());
+        RunPlans.Plan partial = RunPlans.build(workspace, RunPlans.Spec.node(aTest), false);
+        assertTrue(partial.mavenArgs().stream().anyMatch(arg -> arg.equals("-Dtest=com.example.ATest#beta+alpha")), partial.mavenArgs().toString());
+        RunPlans.Plan whole = RunPlans.build(workspace, RunPlans.Spec.node(workspace.tree().children().get(0).children().stream()
+                .filter(node -> node.kind() == TestKind.CLASS && "ATest".equals(node.name()))
+                .findFirst()
+                .orElseThrow()), false);
+        assertTrue(whole.mavenArgs().stream().anyMatch(arg -> arg.equals("-Dtest=com.example.ATest")), whole.mavenArgs().toString());
+    }
+
+    @Test
+    void runningOneSuiteLeavesTheOtherSuiteUntouched() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/ATest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                class ATest {
+                    @Test void alpha() {}
+                    @Test void beta() {}
+                }
+                """);
+        write(temp.resolve("src/test/java/com/example/Picked.java"), """
+                package com.example;
+                import org.junit.platform.suite.api.SelectMethod;
+                import org.junit.platform.suite.api.Suite;
+                @Suite
+                @SelectMethod(type = ATest.class, name = "alpha")
+                class Picked {}
+                """);
+        write(temp.resolve("src/test/java/com/example/Other.java"), """
+                package com.example;
+                import org.junit.platform.suite.api.SelectClasses;
+                import org.junit.platform.suite.api.Suite;
+                @Suite
+                @SelectClasses(ATest.class)
+                class Other {}
+                """);
+
+        Workspace workspace = TestDiscovery.discover(temp);
+        TestNode picked = suite(workspace, "Picked");
+        TestNode other = suite(workspace, "Other");
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(picked), false);
+        assertEquals(picked, plan.suite());
+        TestNode alpha = workspace.realMethods().stream().filter(node -> "alpha".equals(node.methodName())).findFirst().orElseThrow();
+        ResultApplier.apply(workspace, plan.scope(), List.of(new ReportedTest(
+                alpha.moduleDir(),
+                "com.example.ATest",
+                "alpha",
+                TestStatus.FAILED,
+                12,
+                "fail",
+                "AssertionError",
+                "trace",
+                ""
+        )), plan.suite());
+
+        assertEquals(TestStatus.FAILED, picked.status());
+        assertEquals(TestStatus.NOT_RUN, other.status());
+        assertEquals(TestStatus.NOT_RUN, other.children().get(0).children().stream()
+                .filter(node -> "alpha".equals(node.methodName()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+        assertEquals(TestStatus.FAILED, workspace.tree().statusAmongSuites());
+    }
+
+    @Test
+    void clearResultsReturnsMethodsSuitesAndSyntheticsToNotRun() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/ATest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Disabled;
+                import org.junit.jupiter.api.Test;
+                class ATest {
+                    @Test void alpha() {}
+                    @Test @Disabled void held() {}
+                }
+                """);
+        write(temp.resolve("src/test/java/com/example/Picked.java"), """
+                package com.example;
+                import org.junit.platform.suite.api.SelectClasses;
+                import org.junit.platform.suite.api.Suite;
+                @Suite
+                @SelectClasses(ATest.class)
+                class Picked {}
+                """);
+
+        Workspace workspace = TestDiscovery.discover(temp);
+        TestNode alpha = method(workspace, "alpha");
+        TestNode held = method(workspace, "held");
+        TestNode type = alpha.ancestor(TestKind.CLASS);
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(type), false);
+        ResultApplier.apply(workspace, plan.scope(), List.of(
+                new ReportedTest(alpha.moduleDir(), "com.example.ATest", "alpha", TestStatus.FAILED, 12, "fail", "AssertionError", "trace", ""),
+                new ReportedTest(alpha.moduleDir(), "com.example.ATest", "extra", TestStatus.FAILED, 4, "fail", "AssertionError", "trace", "")
+        ), plan.suite());
+        assertEquals(TestStatus.FAILED, alpha.status());
+        assertTrue(type.children().stream().anyMatch(TestNode::synthetic));
+        assertEquals(TestStatus.FAILED, suite(workspace, "Picked").status());
+
+        workspace.clearResults();
+
+        assertEquals(TestStatus.NOT_RUN, alpha.status());
+        assertEquals(-1, alpha.durationMillis());
+        assertEquals(List.of(), alpha.cases());
+        assertEquals(TestStatus.SKIPPED, held.status());
+        assertEquals(List.of(), held.cases());
+        assertFalse(type.children().stream().anyMatch(TestNode::synthetic));
+        assertEquals(TestStatus.NOT_RUN, type.status());
+        assertEquals(TestStatus.NOT_RUN, suite(workspace, "Picked").status());
+        TestNode suiteAlpha = suite(workspace, "Picked").children().stream()
+                .filter(node -> node.kind() == TestKind.CLASS)
+                .findFirst()
+                .orElseThrow()
+                .children()
+                .stream()
+                .filter(node -> "alpha".equals(node.methodName()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(TestStatus.NOT_RUN, suiteAlpha.status());
+        assertEquals(-1, suiteAlpha.durationMillis());
+        assertEquals(TestStatus.NOT_RUN, workspace.tree().status());
+    }
+
+    @Test
+    void runningAClassDoesNotMarkPackageOrProjectRunning() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/ATest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                class ATest {
+                    @Test void alpha() {}
+                    @Test void beta() {}
+                }
+                """);
+        Workspace workspace = TestDiscovery.discover(temp);
+        TestNode type = workspace.tree().children().get(0).children().get(0);
+        assertEquals("ATest", type.name());
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(type), false);
+        ResultApplier.markRunning(plan.scope(), plan.clearSynthetics(), plan.suite(), type);
+        assertEquals(TestStatus.RUNNING, type.status());
+        assertEquals(TestStatus.RUNNING, method(workspace, "alpha").status());
+        assertEquals(TestStatus.RUNNING, method(workspace, "beta").status());
+        assertEquals(TestStatus.NOT_RUN, type.parent().status());
+        assertEquals(TestStatus.NOT_RUN, workspace.tree().status());
+    }
+
+    @Test
+    void runningAClassMarksEveryMethodRunning() throws Exception {
+        Workspace workspace = TestDiscovery.discover(Path.of("examples/calculator"));
+        TestNode type = null;
+        for (TestNode method : workspace.realMethods()) {
+            if ("subtracts".equals(method.methodName()) && method.ancestor(TestKind.SUITE) == null) {
+                type = method.ancestor(TestKind.CLASS);
+            }
+        }
+        assertEquals("CalculatorTest", type.name());
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(type), false);
+        ResultApplier.markRunning(plan.scope(), plan.clearSynthetics(), plan.suite(), type);
+        List<String> idle = new ArrayList<>();
+        type.walk(node -> {
+            if (node.kind() == TestKind.METHOD && node.status() != TestStatus.RUNNING) {
+                idle.add(node.methodName());
+            }
+        });
+        assertEquals(List.of(), idle);
+        assertEquals(TestStatus.NOT_RUN, type.parent().status());
+        assertEquals(TestStatus.NOT_RUN, workspace.tree().status());
+    }
+
+    @Test
+    void runningASuiteMarksThatSuiteRunning() throws Exception {
+        Workspace workspace = TestDiscovery.discover(Path.of("examples/calculator"));
+        TestNode suite = suite(workspace, "CalculatorMethods");
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(suite), false);
+        ResultApplier.markRunning(plan.scope(), plan.clearSynthetics(), plan.suite(), suite);
+        assertEquals(TestStatus.RUNNING, suite.status(), suite.children().stream().map(child -> child.name() + ":" + child.status()).toList().toString());
+        List<String> idle = new ArrayList<>();
+        suite.walk(node -> {
+            if (node.kind() == TestKind.METHOD && node.status() != TestStatus.RUNNING) {
+                idle.add(node.methodName());
+            }
+        });
+        assertEquals(List.of(), idle);
+        assertEquals(TestStatus.NOT_RUN, suite(workspace, "CalculatorSuite").status());
     }
 
     @Test

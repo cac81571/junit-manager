@@ -12,7 +12,7 @@ import java.awt.RenderingHints;
 
 public final class AppIcon extends FlatAbstractIcon {
     public enum Kind {
-        PLAY, CURRENT, RERUN, STOP, REFRESH, DEBUG, COLLAPSE, WATCH,
+        PLAY, CURRENT, RERUN, STOP, REFRESH, DEBUG, COLLAPSE, WATCH, CLEAR,
         PASSED, FAILED, SKIPPED, NOT_RUN, RUNNING
     }
 
@@ -53,6 +53,7 @@ public final class AppIcon extends FlatAbstractIcon {
             case DEBUG -> debug(g, foreground());
             case COLLAPSE -> collapse(g, foreground());
             case WATCH -> watch(g, foreground());
+            case CLEAR -> clear(g, foreground());
             case PASSED -> badge(g, PASSED_COLOR, Badge.CHECK);
             case FAILED -> badge(g, FAILED_COLOR, Badge.CROSS);
             case SKIPPED -> badge(g, SKIPPED_COLOR, Badge.MINUS);
@@ -112,6 +113,14 @@ public final class AppIcon extends FlatAbstractIcon {
         g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.drawPolyline(new int[]{3, 8, 13}, new int[]{5, 9, 5}, 3);
         g.drawPolyline(new int[]{3, 8, 13}, new int[]{9, 13, 9}, 3);
+    }
+
+    private static void clear(Graphics2D g, Color color) {
+        g.setColor(color);
+        g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawOval(2, 2, 12, 12);
+        g.drawLine(6, 6, 10, 10);
+        g.drawLine(10, 6, 6, 10);
     }
 
     private static void watch(Graphics2D g, Color color) {

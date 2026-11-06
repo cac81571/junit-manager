@@ -18,7 +18,7 @@ public final class ResultApplier {
     private ResultApplier() {
     }
 
-    public static boolean markRunning(List<TestNode> scope, boolean clearSynthetics) {
+    public static boolean markRunning(List<TestNode> scope, boolean clearSynthetics, TestNode suite, TestNode runTarget) {
         boolean structural = false;
         if (clearSynthetics) {
             Set<TestNode> classes = new LinkedHashSet<>();
@@ -44,18 +44,18 @@ public final class ResultApplier {
             method.clearCases();
             method.setDurationMillis(-1);
         }
-        rollup(scope);
+        rollup(scope, runTarget);
         if (!scope.isEmpty()) {
             TestNode root = scope.get(0);
             while (root.parent() != null) {
                 root = root.parent();
             }
-            root.syncDuplicates();
+            root.syncDuplicates(suite, runTarget);
         }
         return structural;
     }
 
-    public static boolean apply(Workspace workspace, List<TestNode> scope, List<ReportedTest> reports) {
+    public static boolean apply(Workspace workspace, List<TestNode> scope, List<ReportedTest> reports, TestNode suite) {
         Set<TestNode> scopeSet = new HashSet<>(scope);
         Map<TestNode, List<ReportedTest>> matched = new LinkedHashMap<>();
         List<ReportedTest> unmatched = new ArrayList<>();
@@ -91,11 +91,11 @@ public final class ResultApplier {
             classNode.addChild(TestNode.synthetic(classNode, report.name(), toCase(report)));
             structural = true;
         }
-        workspace.tree().syncDuplicates();
+        workspace.tree().syncDuplicates(suite);
         return structural;
     }
 
-    private static void rollup(List<TestNode> scope) {
+    private static void rollup(List<TestNode> scope, TestNode runTarget) {
         if (scope.isEmpty()) {
             return;
         }
@@ -103,7 +103,7 @@ public final class ResultApplier {
         while (root.parent() != null) {
             root = root.parent();
         }
-        root.rollup();
+        root.rollup(runTarget);
     }
 
     private static TestNode locate(Workspace workspace, ReportedTest report) {

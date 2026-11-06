@@ -95,14 +95,38 @@ public final class Workspace {
     }
 
     public TestNode findMethod(String key) {
-        if (key == null) {
+        return findNode(key);
+    }
+
+    public TestNode findNode(String runKey) {
+        if (runKey == null) {
             return null;
         }
+        int split = runKey.indexOf('\n');
+        if (split < 0) {
+            TestNode[] found = new TestNode[1];
+            tree.walk(node -> {
+                if (!runKey.equals(node.key())) {
+                    return;
+                }
+                if (found[0] == null || (found[0].ancestor(TestKind.SUITE) != null && node.ancestor(TestKind.SUITE) == null)) {
+                    found[0] = node;
+                }
+            });
+            return found[0];
+        }
+        String suiteKey = runKey.substring(0, split);
+        String innerKey = runKey.substring(split + 1);
         TestNode[] found = new TestNode[1];
         tree.walk(node -> {
-            if (found[0] == null && key.equals(node.key())) {
-                found[0] = node;
+            if (found[0] != null || node.kind() != TestKind.SUITE || !suiteKey.equals(node.key())) {
+                return;
             }
+            node.walk(inner -> {
+                if (found[0] == null && innerKey.equals(inner.key()) && inner.ancestor(TestKind.SUITE) == node) {
+                    found[0] = inner;
+                }
+            });
         });
         return found[0];
     }
@@ -116,6 +140,24 @@ public final class Workspace {
             }
         });
         return snapshots;
+    }
+
+    public void clearResults() {
+        List<TestNode> classes = new ArrayList<>();
+        tree.walk(node -> {
+            if (node.kind() == TestKind.CLASS) {
+                classes.add(node);
+            }
+        });
+        for (TestNode classNode : classes) {
+            classNode.removeSyntheticChildren();
+        }
+        tree.walk(node -> {
+            if (node.kind() == TestKind.METHOD && !node.synthetic() && node.ancestor(TestKind.SUITE) == null) {
+                node.setCases(List.of());
+            }
+        });
+        tree.syncDuplicates();
     }
 
     public void restoreResults(Map<String, Snapshot> snapshots) {

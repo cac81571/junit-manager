@@ -241,6 +241,14 @@ public final class TestNode {
         };
     }
 
+    public String runKey() {
+        TestNode suite = ancestor(TestKind.SUITE);
+        if (suite == null || suite == this) {
+            return key();
+        }
+        return suite.key() + "\n" + key();
+    }
+
     public String selector() {
         return switch (kind) {
             case METHOD -> fqcn + "#" + methodName;
@@ -302,6 +310,14 @@ public final class TestNode {
     }
 
     public void syncDuplicates() {
+        syncDuplicates(null);
+    }
+
+    public void syncDuplicates(TestNode onlySuite) {
+        syncDuplicates(onlySuite, null);
+    }
+
+    public void syncDuplicates(TestNode onlySuite, TestNode runTarget) {
         Map<String, TestNode> canonical = new LinkedHashMap<>();
         List<TestNode> methods = new ArrayList<>();
         walk(node -> {
@@ -315,15 +331,95 @@ public final class TestNode {
             }
         }
         for (TestNode node : methods) {
+            TestNode suite = node.ancestor(TestKind.SUITE);
+            if (suite == null || (onlySuite != null && suite != onlySuite)) {
+                continue;
+            }
             TestNode source = canonical.get(node.key());
             if (source == null || source == node) {
                 continue;
             }
+            node.setCases(List.copyOf(source.cases()));
             node.setStatus(source.status());
             node.setDurationMillis(source.durationMillis());
-            node.setCases(List.copyOf(source.cases()));
         }
-        rollup();
+        rollup(runTarget);
+    }
+
+    public boolean contains(TestNode node) {
+        for (TestNode current = node; current != null; current = current.parent) {
+            if (current == this) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public TestStatus statusAmongSuites() {
+        if (kind == TestKind.SUITE || status == TestStatus.RUNNING) {
+            return status;
+        }
+        boolean failed = false;
+        boolean running = false;
+        boolean notRun = false;
+        boolean passed = false;
+        boolean skipped = false;
+        boolean any = false;
+        for (TestNode child : children) {
+            if (child.kind == TestKind.CLASS || child.kind == TestKind.METHOD) {
+                continue;
+            }
+            any = true;
+            switch (child.statusAmongSuites()) {
+                case FAILED -> failed = true;
+                case RUNNING -> {
+                }
+                case NOT_RUN -> notRun = true;
+                case PASSED -> passed = true;
+                case SKIPPED -> skipped = true;
+            }
+        }
+        if (!any) {
+            return TestStatus.NOT_RUN;
+        }
+        if (failed) {
+            return TestStatus.FAILED;
+        }
+        if (running) {
+            return TestStatus.RUNNING;
+        }
+        if (notRun) {
+            return TestStatus.NOT_RUN;
+        }
+        if (passed) {
+            return TestStatus.PASSED;
+        }
+        if (skipped) {
+            return TestStatus.SKIPPED;
+        }
+        return TestStatus.NOT_RUN;
+    }
+
+    public long durationAmongSuites() {
+        if (kind == TestKind.SUITE) {
+            return durationMillis;
+        }
+        long duration = 0;
+        boolean any = false;
+        boolean complete = true;
+        for (TestNode child : children) {
+            if (child.kind == TestKind.CLASS || child.kind == TestKind.METHOD) {
+                continue;
+            }
+            long childDuration = child.durationAmongSuites();
+            if (childDuration < 0) {
+                complete = false;
+                continue;
+            }
+            any = true;
+            duration += childDuration;
+        }
+        return any && complete ? duration : -1;
     }
 
     public TestNode ancestor(TestKind wanted) {
@@ -335,12 +431,17 @@ public final class TestNode {
     }
 
     public void rollup() {
+        rollup(null);
+    }
+
+    public void rollup(TestNode runTarget) {
         for (TestNode child : children) {
-            child.rollup();
+            child.rollup(runTarget);
         }
         if (kind == TestKind.METHOD || children.isEmpty()) {
             return;
         }
+        boolean bubbleRunning = runTarget == null || runTarget == this || runTarget.contains(this);
         boolean onlySuites = children.stream().allMatch(child -> child.kind == TestKind.SUITE);
         boolean failed = false;
         boolean running = false;
@@ -353,6 +454,9 @@ public final class TestNode {
         boolean aggregated = false;
         for (TestNode child : children) {
             if (!onlySuites && kind != TestKind.SUITE && child.kind == TestKind.SUITE) {
+                continue;
+            }
+            if (!bubbleRunning && child.status == TestStatus.RUNNING) {
                 continue;
             }
             aggregated = true;

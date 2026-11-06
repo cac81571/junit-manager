@@ -1,5 +1,6 @@
 package dev.junitmanager.ui;
 
+import dev.junitmanager.model.DurationFormat;
 import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
@@ -13,6 +14,8 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.JTree;
@@ -44,10 +47,18 @@ public final class TestExplorerPanel extends JPanel {
     private final UserActions actions;
     private final DefaultTreeModel model = new DefaultTreeModel(new DefaultMutableTreeNode());
     private final JTree tree = new JTree(model);
+    private final DefaultTreeModel memberModel = new DefaultTreeModel(new DefaultMutableTreeNode());
+    private final JTree memberTree = new JTree(memberModel);
+    private final CardLayout memberCards = new CardLayout();
+    private final JPanel memberCenter = new JPanel(memberCards);
+    private final JSplitPane suiteSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
     private final JTextField filter = new JTextField();
     private final JComboBox<String> statusFilter = new JComboBox<>(FILTERS);
     private final CardLayout cards = new CardLayout();
     private final JPanel center = new JPanel(cards);
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final JPanel testTab = new JPanel(new BorderLayout());
+    private final JPanel suiteTab = new JPanel(new BorderLayout());
     private final JLabel empty = new JLabel("", JLabel.CENTER);
     private final JLabel project = new JLabel("プロジェクト未選択");
     private final JButton runAll;
@@ -57,16 +68,20 @@ public final class TestExplorerPanel extends JPanel {
     private final JButton stop;
     private final JButton refresh;
     private final JButton collapse;
+    private final JButton clearResults;
     private final JToggleButton watch;
     private final Timer filterTimer = new Timer(120, event -> reload(false));
     private int spin;
     private final Timer spinTimer = new Timer(80, event -> {
         spin = (spin + 30) % 360;
         tree.repaint();
+        memberTree.repaint();
     });
     private Workspace workspace;
     private boolean applying;
     private boolean physicalNames;
+    private boolean suiteView;
+    private TestNode memberSelection;
 
     public TestExplorerPanel(UserActions actions) {
         super(new BorderLayout());
@@ -78,11 +93,14 @@ public final class TestExplorerPanel extends JPanel {
         stop = button(AppIcon.Kind.STOP, "停止 (Shift+F5)", actions::stop);
         refresh = button(AppIcon.Kind.REFRESH, "再検出 (Ctrl+Shift+R)", actions::refresh);
         collapse = button(AppIcon.Kind.COLLAPSE, "すべて折りたたむ", this::collapseAll);
+        clearResults = button(AppIcon.Kind.CLEAR, "結果をクリア", actions::clearResults);
         watch = new JToggleButton(new AppIcon(AppIcon.Kind.WATCH));
         filterTimer.setRepeats(false);
         spinTimer.setRepeats(true);
         buildToolbar();
-        buildTree();
+        buildTree(tree, false);
+        buildTree(memberTree, true);
+        buildMemberPane();
         empty.setFont(empty.getFont().deriveFont(Font.PLAIN, empty.getFont().getSize2D() + 1f));
         JPanel emptyWrap = new JPanel(new BorderLayout());
         emptyWrap.setOpaque(false);
@@ -97,7 +115,25 @@ public final class TestExplorerPanel extends JPanel {
         center.setOpaque(false);
         center.add(new JScrollPane(tree), TREE);
         center.add(emptyWrap, EMPTY);
-        add(center, BorderLayout.CENTER);
+        testTab.setOpaque(false);
+        suiteTab.setOpaque(false);
+        tabs.addTab("テスト", testTab);
+        tabs.addTab("スイート", suiteTab);
+        tabs.addChangeListener(event -> {
+            if (applying) {
+                return;
+            }
+            boolean next = tabs.getSelectedIndex() == 1;
+            if (next == suiteView) {
+                return;
+            }
+            suiteView = next;
+            attachPages();
+            reload(false);
+            actions.selectNode(selected());
+        });
+        attachPages();
+        add(tabs, BorderLayout.CENTER);
         showEmpty("Maven プロジェクトを開くと、テストがここに表示されます。", true);
         setBusy(false, false);
     }
@@ -113,6 +149,11 @@ public final class TestExplorerPanel extends JPanel {
     public void setPhysicalNames(boolean physicalNames) {
         this.physicalNames = physicalNames;
         remeasureRows();
+    }
+
+    public void applyTheme() {
+        SwingUtilities.updateComponentTreeUI(suiteSplit);
+        suiteSplit.setBorder(null);
     }
 
     private void remeasureRows() {
@@ -132,7 +173,7 @@ public final class TestExplorerPanel extends JPanel {
 
     public void reload(boolean keepState) {
         Set<String> expanded = keepState ? expandedKeys() : Set.of();
-        String selected = keepState ? selectedKey() : null;
+        TestNode selectedNode = keepState ? selected() : null;
         int scroll = keepState ? scrollValue() : 0;
         applying = true;
         try {
@@ -144,11 +185,18 @@ public final class TestExplorerPanel extends JPanel {
             DefaultMutableTreeNode root = build(workspace.tree(), filter.getText().trim(), selectedStatus(), false);
             model.setRoot(root == null ? new DefaultMutableTreeNode(workspace.tree()) : root);
             boolean noTests = workspace.methodCount() == 0;
-            boolean filteredOut = !noTests && (root == null || root.getChildCount() == 0);
-            if (noTests) {
+            boolean noSuites = !hasSuite(workspace.tree());
+            boolean filteredOut = (suiteView ? !noSuites : !noTests) && (root == null || root.getChildCount() == 0);
+            if (suiteView && noSuites) {
+                showEmpty("テストスイートは見つかりませんでした。", false);
+                showMembers(null);
+            } else if (!suiteView && noTests) {
                 showEmpty("@Test の付いたメソッドは見つかりませんでした。", false);
             } else if (filteredOut) {
-                showEmpty("一致するテストがありません。", false);
+                showEmpty(suiteView ? "一致するスイートがありません。" : "一致するテストがありません。", false);
+                if (suiteView) {
+                    showMembers(null);
+                }
             } else {
                 cards.show(center, TREE);
                 if (keepState && !expanded.isEmpty()) {
@@ -158,10 +206,15 @@ public final class TestExplorerPanel extends JPanel {
                 } else {
                     restore(expanded);
                 }
-                if (selected != null) {
-                    selectKey(selected);
+                if (selectedNode != null) {
+                    restoreSelection(selectedNode);
                 } else if (tree.getSelectionPath() == null && model.getRoot() != null) {
                     tree.setSelectionPath(new TreePath(model.getRoot()));
+                    if (suiteView) {
+                        showMembers(selectedFrom(tree));
+                    }
+                } else if (suiteView) {
+                    showMembers(selectedFrom(tree));
                 }
                 if (keepState) {
                     SwingUtilities.invokeLater(() -> treeScroll().setValue(scroll));
@@ -174,19 +227,58 @@ public final class TestExplorerPanel extends JPanel {
 
     public void refreshStatuses() {
         tree.repaint();
+        memberTree.repaint();
     }
 
     public TestNode selected() {
-        TreePath path = tree.getSelectionPath();
-        return path == null ? null : nodeOf(path.getLastPathComponent());
+        if (suiteView && memberSelection != null) {
+            return memberSelection;
+        }
+        return selectedFrom(tree);
     }
 
     public void select(TestNode node) {
         if (node == null) {
             return;
         }
+        Boolean wantSuite = tabFor(node);
+        if (wantSuite != null && wantSuite != suiteView) {
+            suiteView = wantSuite;
+            applying = true;
+            tabs.setSelectedIndex(wantSuite ? 1 : 0);
+            applying = false;
+            attachPages();
+            reload(false);
+        }
         cards.show(center, TREE);
-        selectKey(node.key());
+        applying = true;
+        try {
+            if (suiteView && node.ancestor(TestKind.SUITE) != null && node.kind() != TestKind.SUITE) {
+                TestNode suite = node.ancestor(TestKind.SUITE);
+                selectIdentity(suite);
+                showMembers(suite);
+                selectMember(node);
+            } else {
+                if (selectedFrom(tree) != node) {
+                    selectIdentity(node);
+                }
+                if (suiteView) {
+                    showMembers(node.kind() == TestKind.SUITE ? node : null);
+                }
+            }
+        } finally {
+            applying = false;
+        }
+    }
+
+    private static Boolean tabFor(TestNode node) {
+        if (node.ancestor(TestKind.SUITE) != null) {
+            return true;
+        }
+        if (node.kind() == TestKind.CLASS || node.kind() == TestKind.METHOD) {
+            return false;
+        }
+        return null;
     }
 
     public int showingCount() {
@@ -205,6 +297,7 @@ public final class TestExplorerPanel extends JPanel {
         runFailed.setEnabled(idle && hasProject);
         debug.setEnabled(idle && hasProject);
         refresh.setEnabled(idle && hasProject);
+        clearResults.setEnabled(idle && hasProject);
         collapse.setEnabled(hasProject && !discovering);
         stop.setEnabled(running);
         watch.setEnabled(hasProject && !discovering);
@@ -215,6 +308,7 @@ public final class TestExplorerPanel extends JPanel {
         } else {
             spinTimer.stop();
             tree.repaint();
+            memberTree.repaint();
         }
     }
 
@@ -234,7 +328,7 @@ public final class TestExplorerPanel extends JPanel {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         buttons.setOpaque(false);
         buttons.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
-        for (JButton button : new JButton[]{runAll, runSelected, runFailed, debug, stop, refresh, collapse}) {
+        for (JButton button : new JButton[]{runAll, runSelected, runFailed, debug, stop, refresh, clearResults, collapse}) {
             buttons.add(button);
         }
         buttons.add(watch);
@@ -276,50 +370,144 @@ public final class TestExplorerPanel extends JPanel {
         add(north, BorderLayout.NORTH);
     }
 
-    private void buildTree() {
-        tree.setRootVisible(true);
-        tree.setShowsRootHandles(true);
-        tree.setRowHeight(0);
-        tree.setCellRenderer(new Renderer());
-        ToolTipManager.sharedInstance().registerComponent(tree);
-        tree.addTreeSelectionListener(event -> {
-            if (!applying) {
-                actions.selectNode(selected());
+    private void buildTree(JTree target, boolean members) {
+        target.setRootVisible(!members);
+        target.setShowsRootHandles(true);
+        target.setRowHeight(0);
+        target.setCellRenderer(new Renderer());
+        ToolTipManager.sharedInstance().registerComponent(target);
+        target.addTreeSelectionListener(event -> {
+            if (applying) {
+                return;
             }
+            if (members) {
+                TestNode node = selectedFrom(target);
+                if (node == null) {
+                    memberSelection = null;
+                    return;
+                }
+                memberSelection = node;
+                actions.selectNode(node);
+                return;
+            }
+            if (suiteView) {
+                showMembers(selectedFrom(target));
+            }
+            actions.selectNode(selected());
         });
-        tree.addMouseListener(new MouseAdapter() {
+        target.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
                 if (event.isPopupTrigger() || SwingUtilities.isRightMouseButton(event)) {
-                    showPopup(event);
+                    showPopup(target, event);
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
                 if (event.isPopupTrigger()) {
-                    showPopup(event);
-                }
-            }
-
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                if (event.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(event)) {
-                    TestNode node = nodeAt(event);
-                    if (node != null && node.kind() == TestKind.METHOD) {
-                        actions.runNode(node, false);
-                    }
+                    showPopup(target, event);
                 }
             }
         });
     }
 
-    private void showPopup(MouseEvent event) {
-        TreePath path = tree.getPathForLocation(event.getX(), event.getY());
+    private void buildMemberPane() {
+        JLabel title = new JLabel("実行されるテスト");
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
+        title.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        JLabel hint = new JLabel("スイートを選ぶと、実行されるクラスとメソッドを表示します。", JLabel.CENTER);
+        hint.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
+        JLabel none = new JLabel("このスイートが実行するテストはありません。", JLabel.CENTER);
+        none.setBorder(BorderFactory.createEmptyBorder(16, 12, 16, 12));
+        memberCenter.setOpaque(false);
+        memberCenter.add(new JScrollPane(memberTree), TREE);
+        memberCenter.add(hint, "hint");
+        memberCenter.add(none, "none");
+        memberCards.show(memberCenter, "hint");
+        JPanel members = new JPanel(new BorderLayout());
+        members.setOpaque(false);
+        members.add(title, BorderLayout.NORTH);
+        members.add(memberCenter, BorderLayout.CENTER);
+        suiteSplit.setTopComponent(new JPanel());
+        suiteSplit.setBottomComponent(members);
+        suiteSplit.setResizeWeight(0.45);
+        suiteSplit.setContinuousLayout(true);
+        suiteSplit.setBorder(null);
+    }
+
+    private void showMembers(TestNode selection) {
+        boolean guarded = applying;
+        applying = true;
+        try {
+            memberTree.clearSelection();
+            memberSelection = null;
+            TestNode suite = selection == null ? null : selection.kind() == TestKind.SUITE ? selection : selection.ancestor(TestKind.SUITE);
+            if (suite == null) {
+                memberModel.setRoot(new DefaultMutableTreeNode());
+                memberCards.show(memberCenter, "hint");
+                return;
+            }
+            String query = filter.getText().trim();
+            boolean suiteMatch = query.isEmpty() || matches(suite, query);
+            DefaultMutableTreeNode root = new DefaultMutableTreeNode(suite);
+            for (TestNode child : suite.children()) {
+                DefaultMutableTreeNode built = build(child, query, selectedStatus(), suiteMatch);
+                if (built != null) {
+                    root.add(built);
+                }
+            }
+            memberModel.setRoot(root);
+            if (root.getChildCount() == 0) {
+                memberCards.show(memberCenter, "none");
+                return;
+            }
+            memberCards.show(memberCenter, TREE);
+            for (int i = 0; i < memberTree.getRowCount(); i++) {
+                memberTree.expandRow(i);
+            }
+        } finally {
+            if (!guarded) {
+                applying = false;
+            }
+        }
+    }
+
+    private void restoreSelection(TestNode node) {
+        TestNode suite = node.ancestor(TestKind.SUITE);
+        if (suiteView && suite != null && node.kind() != TestKind.SUITE) {
+            selectIdentity(suite);
+            showMembers(suite);
+            selectMember(node);
+            return;
+        }
+        selectIdentity(node);
+        if (suiteView) {
+            showMembers(node.kind() == TestKind.SUITE ? node : null);
+        }
+    }
+
+    private void selectMember(TestNode target) {
+        Object root = memberModel.getRoot();
+        memberSelection = null;
+        if (!(root instanceof DefaultMutableTreeNode treeNode)) {
+            return;
+        }
+        TreePath path = findIdentity(treeNode, new TreePath(treeNode), target);
         if (path == null) {
             return;
         }
-        tree.setSelectionPath(path);
+        memberSelection = target;
+        memberTree.setSelectionPath(path);
+        memberTree.scrollPathToVisible(path);
+    }
+
+    private void showPopup(JTree target, MouseEvent event) {
+        TreePath path = target.getPathForLocation(event.getX(), event.getY());
+        if (path == null) {
+            return;
+        }
+        target.setSelectionPath(path);
         TestNode node = nodeOf(path.getLastPathComponent());
         if (node == null) {
             return;
@@ -335,7 +523,7 @@ public final class TestExplorerPanel extends JPanel {
         }
         item(menu, "mvn test をコピー", () -> actions.copyTestCommand(node));
         item(menu, "フォルダを開く", () -> actions.reveal(node));
-        menu.show(tree, event.getX(), event.getY());
+        menu.show(target, event.getX(), event.getY());
     }
 
     private static void item(JPopupMenu menu, String label, Runnable action) {
@@ -367,6 +555,19 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     private DefaultMutableTreeNode build(TestNode node, String query, TestStatus status, boolean ancestorMatch) {
+        if (!suiteView && node.kind() == TestKind.SUITE) {
+            return null;
+        }
+        if (suiteView && node.ancestor(TestKind.SUITE) == null && node.kind() != TestKind.ROOT
+                && node.kind() != TestKind.MODULE && node.kind() != TestKind.PACKAGE && node.kind() != TestKind.SUITE) {
+            return null;
+        }
+        if (suiteView && node.kind() == TestKind.SUITE) {
+            if (!includeSuite(node, query, status, ancestorMatch)) {
+                return null;
+            }
+            return new DefaultMutableTreeNode(node);
+        }
         boolean self = ancestorMatch || matches(node, query);
         if (node.kind() == TestKind.METHOD) {
             if (status != null && node.status() != status) {
@@ -390,6 +591,39 @@ public final class TestExplorerPanel extends JPanel {
             }
         }
         return treeNode;
+    }
+
+    private boolean includeSuite(TestNode suite, String query, TestStatus status, boolean ancestorMatch) {
+        if (query.isEmpty() && status == null) {
+            return true;
+        }
+        if ((ancestorMatch || matches(suite, query)) && (status == null || suiteHasStatus(suite, status))) {
+            return true;
+        }
+        for (TestNode child : suite.children()) {
+            if (child.kind() == TestKind.METHOD) {
+                boolean nameOk = query.isEmpty() || matches(child, query);
+                boolean statusOk = status == null || child.status() == status;
+                if (nameOk && statusOk) {
+                    return true;
+                }
+            } else if (includeSuite(child, query, status, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean suiteHasStatus(TestNode node, TestStatus status) {
+        if (node.kind() == TestKind.METHOD) {
+            return node.status() == status;
+        }
+        for (TestNode child : node.children()) {
+            if (suiteHasStatus(child, status)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean matches(TestNode node, String query) {
@@ -480,15 +714,65 @@ public final class TestExplorerPanel extends JPanel {
         }
     }
 
-    private void selectKey(String key) {
+    private void selectIdentity(TestNode target) {
         Object root = model.getRoot();
-        if (root instanceof DefaultMutableTreeNode treeNode) {
-            TreePath path = find(treeNode, new TreePath(treeNode), key);
-            if (path != null) {
-                tree.setSelectionPath(path);
-                tree.scrollPathToVisible(path);
+        if (!(root instanceof DefaultMutableTreeNode treeNode)) {
+            return;
+        }
+        TreePath path = findIdentity(treeNode, new TreePath(treeNode), target);
+        if (path == null) {
+            path = find(treeNode, new TreePath(treeNode), target.key());
+        }
+        if (path != null) {
+            tree.setSelectionPath(path);
+            tree.scrollPathToVisible(path);
+        }
+    }
+
+    private TreePath findIdentity(DefaultMutableTreeNode node, TreePath path, TestNode target) {
+        if (nodeOf(node) == target) {
+            return path;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+            TreePath found = findIdentity(child, path.pathByAddingChild(child), target);
+            if (found != null) {
+                return found;
             }
         }
+        return null;
+    }
+
+    private void attachPages() {
+        if (center.getParent() != null) {
+            center.getParent().remove(center);
+        }
+        if (suiteView) {
+            suiteSplit.setTopComponent(center);
+            if (suiteSplit.getParent() != suiteTab) {
+                suiteTab.removeAll();
+                suiteTab.add(suiteSplit, BorderLayout.CENTER);
+            }
+            if (suiteSplit.getDividerLocation() <= 0) {
+                SwingUtilities.invokeLater(() -> suiteSplit.setDividerLocation(0.42));
+            }
+        } else {
+            testTab.add(center, BorderLayout.CENTER);
+        }
+        tabs.revalidate();
+        tabs.repaint();
+    }
+
+    private static boolean hasSuite(TestNode node) {
+        if (node.kind() == TestKind.SUITE) {
+            return true;
+        }
+        for (TestNode child : node.children()) {
+            if (hasSuite(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private TreePath find(DefaultMutableTreeNode node, TreePath path, String key) {
@@ -506,11 +790,6 @@ public final class TestExplorerPanel extends JPanel {
         return null;
     }
 
-    private String selectedKey() {
-        TestNode node = selected();
-        return node == null ? null : node.key();
-    }
-
     private int scrollValue() {
         return treeScroll().getValue();
     }
@@ -520,8 +799,8 @@ public final class TestExplorerPanel extends JPanel {
         return scroll == null ? new javax.swing.JScrollBar() : scroll.getVerticalScrollBar();
     }
 
-    private TestNode nodeAt(MouseEvent event) {
-        TreePath path = tree.getPathForLocation(event.getX(), event.getY());
+    private static TestNode selectedFrom(JTree target) {
+        TreePath path = target.getSelectionPath();
         return path == null ? null : nodeOf(path.getLastPathComponent());
     }
 
@@ -532,10 +811,10 @@ public final class TestExplorerPanel extends JPanel {
         return null;
     }
 
-    private static int countMethods(DefaultMutableTreeNode node) {
+    private int countMethods(DefaultMutableTreeNode node) {
         TestNode test = nodeOf(node);
-        if (test != null && test.kind() == TestKind.SUITE) {
-            return 0;
+        if (suiteView && test != null && test.kind() == TestKind.SUITE) {
+            return test.methodCount();
         }
         int count = test != null && test.kind() == TestKind.METHOD ? 1 : 0;
         for (int i = 0; i < node.getChildCount(); i++) {
@@ -556,10 +835,11 @@ public final class TestExplorerPanel extends JPanel {
             if (node == null) {
                 return this;
             }
-            setIcon(AppIcon.status(node.status(), spin));
+            TestStatus shown = displayedStatus(tree, node);
+            setIcon(AppIcon.status(shown, spin));
             String label = treeLabel(node);
             String order = node.hasOrder() ? Integer.toString(node.order()) : "";
-            String duration = node.durationLabel();
+            String duration = displayedDuration(tree, node);
             plain = plainLabel(order, label, duration);
             if (selected || (order.isEmpty() && duration.isEmpty())) {
                 setText(plain);
@@ -575,7 +855,7 @@ public final class TestExplorerPanel extends JPanel {
                 html.append("</html>");
                 setText(html.toString());
             }
-            setToolTipText(tooltip(node));
+            setToolTipText(tooltip(node, shown, duration));
             return this;
         }
 
@@ -608,7 +888,25 @@ public final class TestExplorerPanel extends JPanel {
         return physicalNames ? node.name() : node.displayName();
     }
 
-    private String tooltip(TestNode node) {
+    private TestStatus displayedStatus(JTree source, TestNode node) {
+        if (source == tree && suiteView && suiteContainer(node)) {
+            return node.statusAmongSuites();
+        }
+        return node.status();
+    }
+
+    private String displayedDuration(JTree source, TestNode node) {
+        if (source == tree && suiteView && suiteContainer(node)) {
+            return DurationFormat.of(node.durationAmongSuites());
+        }
+        return node.durationLabel();
+    }
+
+    private static boolean suiteContainer(TestNode node) {
+        return node.kind() == TestKind.ROOT || node.kind() == TestKind.MODULE || node.kind() == TestKind.PACKAGE;
+    }
+
+    private String tooltip(TestNode node, TestStatus status, String duration) {
         String kind = switch (node.kind()) {
             case ROOT -> "プロジェクト";
             case MODULE -> "モジュール";
@@ -629,9 +927,9 @@ public final class TestExplorerPanel extends JPanel {
         if (node.hasOrder()) {
             text.append('\n').append("@Order ").append(node.order());
         }
-        text.append('\n').append(node.status().label());
-        if (!node.durationLabel().isEmpty()) {
-            text.append(" · ").append(node.durationLabel());
+        text.append('\n').append(status.label());
+        if (!duration.isEmpty()) {
+            text.append(" · ").append(duration);
         }
         if (node.disabled() && node.ignoreReason() != null && !node.ignoreReason().isBlank()) {
             text.append("\n無効: ").append(node.ignoreReason());
