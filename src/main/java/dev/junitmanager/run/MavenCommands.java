@@ -26,6 +26,19 @@ public final class MavenCommands {
         return new Launch(command, directory, display);
     }
 
+    public static String clipboardCommand(List<String> mavenArgs) {
+        String selector = null;
+        for (String arg : mavenArgs) {
+            if (arg.startsWith("-Dtest=")) {
+                selector = arg.substring("-Dtest=".length());
+            }
+        }
+        if (selector == null || selector.isBlank()) {
+            return "mvn test";
+        }
+        return "mvn test -Dtest=" + selector;
+    }
+
     static Path resolveWrapper(Path start, Path root) {
         boolean windows = isWindows();
         Path dir = start;

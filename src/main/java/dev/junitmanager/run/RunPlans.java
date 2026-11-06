@@ -63,7 +63,7 @@ public final class RunPlans {
     private static Plan failed(Workspace workspace, boolean debug) {
         LinkedHashSet<TestNode> methods = new LinkedHashSet<>();
         workspace.tree().walk(node -> {
-            if (node.kind() != TestKind.METHOD) {
+            if (node.kind() != TestKind.METHOD || node.ancestor(TestKind.SUITE) != null) {
                 return;
             }
             if (!node.synthetic() && node.status() == TestStatus.FAILED) {
@@ -98,17 +98,36 @@ public final class RunPlans {
                     debug,
                     false
             );
-            case CLASS -> fromMethods(workspace, node.fqcn(), node.realMethods(), node.fqcn(), true, debug, false);
+            case SUITE -> fromMethods(workspace, node.fqcn(), scopeOf(workspace, node), node.fqcn(), true, debug, false);
+            case CLASS -> fromMethods(workspace, node.fqcn(), scopeOf(workspace, node), node.fqcn(), true, debug, false);
             case METHOD -> fromMethods(
                     workspace,
                     node.fqcn() + "#" + node.methodName(),
-                    List.of(node),
+                    scopeOf(workspace, node),
                     node.fqcn() + "#" + node.methodName(),
                     false,
                     debug,
                     false
             );
         };
+    }
+
+    private static List<TestNode> scopeOf(Workspace workspace, TestNode node) {
+        List<TestNode> methods = node.kind() == TestKind.METHOD ? List.of(node) : node.realMethods();
+        if (node.kind() != TestKind.SUITE && node.ancestor(TestKind.SUITE) == null) {
+            return methods;
+        }
+        Set<String> keys = new LinkedHashSet<>();
+        for (TestNode method : methods) {
+            keys.add(method.key());
+        }
+        List<TestNode> canonical = new ArrayList<>();
+        for (TestNode method : workspace.realMethods()) {
+            if (keys.contains(method.key())) {
+                canonical.add(method);
+            }
+        }
+        return canonical.isEmpty() ? methods : canonical;
     }
 
     private static Plan fromMethods(

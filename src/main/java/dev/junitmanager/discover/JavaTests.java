@@ -47,8 +47,23 @@ final class JavaTests {
         boolean disabled;
         String ignoreReason;
         int line;
+        Integer order;
+        boolean suite;
+        final List<String> suiteClasses = new ArrayList<>();
+        final List<String> suitePackages = new ArrayList<>();
+        final List<SuiteMethod> suiteMethods = new ArrayList<>();
         final List<MethodUnit> methods = new ArrayList<>();
         final List<TypeUnit> nested = new ArrayList<>();
+    }
+
+    static final class SuiteMethod {
+        final String typeName;
+        final String methodName;
+
+        SuiteMethod(String typeName, String methodName) {
+            this.typeName = typeName;
+            this.methodName = methodName;
+        }
     }
 
     static final class MethodUnit {
@@ -57,11 +72,16 @@ final class JavaTests {
         boolean disabled;
         String ignoreReason;
         int line;
+        Integer order;
         Framework framework = Framework.UNKNOWN;
     }
 
     static FileUnit parse(String source) {
         return new Parser(source).parse();
+    }
+
+    static boolean isSuite(TypeUnit type) {
+        return type.suite;
     }
 
     static boolean hasTests(TypeUnit type) {
@@ -199,6 +219,8 @@ final class JavaTests {
             }
             type.disabled = (owner != null && owner.disabled) || isDisabled(annotations);
             type.ignoreReason = textOf(annotations, this::isDisabledAnnotation);
+            type.order = orderOf(annotations);
+            captureSuite(annotations, type);
             if ((type.ignoreReason == null || type.ignoreReason.isBlank()) && type.disabled && owner != null) {
                 type.ignoreReason = owner.ignoreReason;
             }
@@ -273,6 +295,7 @@ final class JavaTests {
                 method.ignoreReason = owner.ignoreReason;
             }
             method.framework = frameworkOf(annotations);
+            method.order = orderOf(annotations);
             owner.methods.add(method);
         }
 
@@ -451,6 +474,313 @@ final class JavaTests {
             }
         }
 
+        private void captureSuite(List<Ann> annotations, TypeUnit type) {
+            boolean marker = false;
+            for (Ann ann : annotations) {
+                String resolved = imports.resolve(ann.name);
+                if (isSuiteMarker(ann, resolved)) {
+                    marker = true;
+                }
+                if (resolved.endsWith("SuiteClasses") || resolved.endsWith("SelectClasses")) {
+                    type.suiteClasses.addAll(classLiterals(ann.args));
+                }
+                if (resolved.endsWith("SelectPackages")) {
+                    type.suitePackages.addAll(stringLiterals(ann.args));
+                }
+                if (isSelectMethod(resolved)) {
+                    SuiteMethod method = parseSelectMethod(ann.args);
+                    if (method != null) {
+                        type.suiteMethods.add(method);
+                    }
+                }
+                if (resolved.endsWith("SelectMethods")) {
+                    type.suiteMethods.addAll(nestedSelectMethods(ann.args));
+                }
+            }
+            type.suite = marker || !type.suiteClasses.isEmpty() || !type.suitePackages.isEmpty() || !type.suiteMethods.isEmpty();
+        }
+
+        private static boolean isSelectMethod(String resolved) {
+            return resolved.endsWith("SelectMethod") && !resolved.endsWith("SelectMethods");
+        }
+
+        private static SuiteMethod parseSelectMethod(String args) {
+            if (args == null || args.isBlank()) {
+                return null;
+            }
+            String value = null;
+            String type = null;
+            String typeName = null;
+            String name = null;
+            int positional = 0;
+            String[] order = {"value", "type", "typeName", "name", "parameterTypes", "parameterTypeNames"};
+            for (String part : topLevelParts(args)) {
+                int eq = indexOfEquals(part);
+                String key;
+                String raw;
+                if (eq >= 0) {
+                    key = part.substring(0, eq).trim();
+                    raw = part.substring(eq + 1).trim();
+                } else if (positional < order.length) {
+                    key = order[positional++];
+                    raw = part.trim();
+                } else {
+                    continue;
+                }
+                switch (key) {
+                    case "value" -> value = firstString(raw);
+                    case "type" -> {
+                        List<String> classes = classLiterals(raw);
+                        if (!classes.isEmpty()) {
+                            type = classes.get(0);
+                        }
+                    }
+                    case "typeName" -> typeName = firstString(raw);
+                    case "name" -> name = firstString(raw);
+                    default -> {
+                    }
+                }
+            }
+            if (value != null && !value.isBlank()) {
+                return fromMethodSelector(value);
+            }
+            String owner = type != null && !type.isBlank() ? type : typeName;
+            if (owner == null || owner.isBlank() || name == null || name.isBlank()) {
+                return null;
+            }
+            return new SuiteMethod(owner, name);
+        }
+
+        private static SuiteMethod fromMethodSelector(String value) {
+            int hash = value.indexOf('#');
+            if (hash <= 0 || hash >= value.length() - 1) {
+                return null;
+            }
+            String type = value.substring(0, hash).trim();
+            String method = value.substring(hash + 1).trim();
+            int paren = method.indexOf('(');
+            if (paren >= 0) {
+                method = method.substring(0, paren).trim();
+            }
+            if (type.isBlank() || method.isBlank()) {
+                return null;
+            }
+            return new SuiteMethod(type, method);
+        }
+
+        private static List<SuiteMethod> nestedSelectMethods(String args) {
+            List<SuiteMethod> found = new ArrayList<>();
+            if (args == null) {
+                return found;
+            }
+            for (int index = 0; index < args.length(); index++) {
+                if (args.charAt(index) == '"') {
+                    int close = args.indexOf('"', index + 1);
+                    index = close < 0 ? args.length() : close;
+                    continue;
+                }
+                if (!args.startsWith("SelectMethod", index)) {
+                    continue;
+                }
+                int after = index + "SelectMethod".length();
+                int paren = after;
+                while (paren < args.length() && Character.isWhitespace(args.charAt(paren))) {
+                    paren++;
+                }
+                if (paren >= args.length() || args.charAt(paren) != '(') {
+                    index = after - 1;
+                    continue;
+                }
+                String inner = insideParens(args, paren);
+                SuiteMethod method = parseSelectMethod(inner);
+                if (method != null) {
+                    found.add(method);
+                }
+                index = paren + inner.length();
+            }
+            return found;
+        }
+
+        private static String insideParens(String args, int open) {
+            int depth = 0;
+            boolean inString = false;
+            for (int index = open; index < args.length(); index++) {
+                char c = args.charAt(index);
+                if (inString) {
+                    if (c == '\\' && index + 1 < args.length()) {
+                        index++;
+                        continue;
+                    }
+                    if (c == '"') {
+                        inString = false;
+                    }
+                    continue;
+                }
+                if (c == '"') {
+                    inString = true;
+                    continue;
+                }
+                if (c == '(') {
+                    depth++;
+                    continue;
+                }
+                if (c == ')') {
+                    depth--;
+                    if (depth == 0) {
+                        return args.substring(open + 1, index);
+                    }
+                }
+            }
+            return "";
+        }
+
+        private static List<String> topLevelParts(String args) {
+            List<String> parts = new ArrayList<>();
+            StringBuilder current = new StringBuilder();
+            int depth = 0;
+            boolean inString = false;
+            for (int index = 0; index < args.length(); index++) {
+                char c = args.charAt(index);
+                if (inString) {
+                    current.append(c);
+                    if (c == '\\' && index + 1 < args.length()) {
+                        current.append(args.charAt(++index));
+                    } else if (c == '"') {
+                        inString = false;
+                    }
+                    continue;
+                }
+                if (c == '"') {
+                    inString = true;
+                    current.append(c);
+                    continue;
+                }
+                if (c == '(' || c == '{' || c == '[') {
+                    depth++;
+                    current.append(c);
+                    continue;
+                }
+                if (c == ')' || c == '}' || c == ']') {
+                    depth = Math.max(0, depth - 1);
+                    current.append(c);
+                    continue;
+                }
+                if (c == ',' && depth == 0) {
+                    if (!current.toString().isBlank()) {
+                        parts.add(current.toString().trim());
+                    }
+                    current.setLength(0);
+                    continue;
+                }
+                current.append(c);
+            }
+            if (!current.toString().isBlank()) {
+                parts.add(current.toString().trim());
+            }
+            return parts;
+        }
+
+        private static int indexOfEquals(String part) {
+            int depth = 0;
+            boolean inString = false;
+            for (int index = 0; index < part.length(); index++) {
+                char c = part.charAt(index);
+                if (inString) {
+                    if (c == '\\' && index + 1 < part.length()) {
+                        index++;
+                    } else if (c == '"') {
+                        inString = false;
+                    }
+                    continue;
+                }
+                if (c == '"') {
+                    inString = true;
+                    continue;
+                }
+                if (c == '(' || c == '{' || c == '[') {
+                    depth++;
+                    continue;
+                }
+                if (c == ')' || c == '}' || c == ']') {
+                    depth = Math.max(0, depth - 1);
+                    continue;
+                }
+                if (c == '=' && depth == 0) {
+                    return index;
+                }
+            }
+            return -1;
+        }
+
+        private boolean isSuiteMarker(Ann ann, String resolved) {
+            if (resolved.equals("org.junit.platform.suite.api.Suite") || resolved.equals("org.junit.runners.Suite")) {
+                return true;
+            }
+            if (!resolved.equals("org.junit.runner.RunWith") && !resolved.equals("RunWith")) {
+                return false;
+            }
+            for (String name : classLiterals(ann.args)) {
+                String simple = name.substring(name.lastIndexOf('.') + 1);
+                String target = imports.resolve(name.contains(".") ? name : simple);
+                if (target.equals("org.junit.runners.Suite") || target.endsWith(".Suite")) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static List<String> classLiterals(String args) {
+            List<String> names = new ArrayList<>();
+            if (args == null) {
+                return names;
+            }
+            int index = 0;
+            while (index < args.length()) {
+                int classAt = args.indexOf(".class", index);
+                if (classAt < 0) {
+                    break;
+                }
+                int start = classAt;
+                while (start > 0) {
+                    char previous = args.charAt(start - 1);
+                    if (!Character.isJavaIdentifierPart(previous) && previous != '.') {
+                        break;
+                    }
+                    start--;
+                }
+                if (start < classAt) {
+                    String name = args.substring(start, classAt);
+                    if (name.endsWith(".")) {
+                        name = name.substring(0, name.length() - 1);
+                    }
+                    if (!name.isBlank()) {
+                        names.add(name);
+                    }
+                }
+                index = classAt + ".class".length();
+            }
+            return names;
+        }
+
+        private static List<String> stringLiterals(String args) {
+            List<String> values = new ArrayList<>();
+            if (args == null) {
+                return values;
+            }
+            for (int index = 0; index < args.length(); index++) {
+                if (args.charAt(index) != '"') {
+                    continue;
+                }
+                String value = readJavaString(args, index);
+                if (value != null && !value.isBlank()) {
+                    values.add(value);
+                }
+                int close = args.indexOf('"', index + 1);
+                index = close < 0 ? args.length() : close;
+            }
+            return values;
+        }
+
         private boolean isJUnitTest(List<Ann> annotations) {
             for (Ann ann : annotations) {
                 String resolved = imports.resolve(ann.name);
@@ -482,6 +812,54 @@ final class JavaTests {
                     || resolved.equals("org.junit.Ignore")
                     || resolved.equals("Disabled")
                     || resolved.equals("Ignore");
+        }
+
+        private Integer orderOf(List<Ann> annotations) {
+            for (Ann ann : annotations) {
+                String resolved = imports.resolve(ann.name);
+                if (!resolved.equals("org.junit.jupiter.api.Order") && !resolved.equals("Order")) {
+                    continue;
+                }
+                Integer value = intLiteral(ann.args);
+                if (value != null) {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        private static Integer intLiteral(String args) {
+            if (args == null) {
+                return null;
+            }
+            String body = args.trim();
+            if (body.startsWith("value")) {
+                int eq = body.indexOf('=');
+                if (eq < 0) {
+                    return null;
+                }
+                body = body.substring(eq + 1).trim();
+            }
+            int end = body.startsWith("+") || body.startsWith("-") ? 1 : 0;
+            if (end >= body.length()) {
+                return null;
+            }
+            int digits = end;
+            while (digits < body.length()) {
+                char c = body.charAt(digits);
+                if (!Character.isDigit(c) && c != '_') {
+                    break;
+                }
+                digits++;
+            }
+            if (digits == end) {
+                return null;
+            }
+            try {
+                return Integer.valueOf(body.substring(0, digits).replace("_", ""));
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
 
         private boolean isDisplayName(Ann ann) {

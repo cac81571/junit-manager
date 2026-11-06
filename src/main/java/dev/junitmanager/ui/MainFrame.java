@@ -13,6 +13,10 @@ import dev.junitmanager.run.SourceWatcher;
 import dev.junitmanager.settings.UserSettings;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.JButton;
+import javax.swing.BoxLayout;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -23,7 +27,9 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JSplitPane;
+import javax.swing.JTextField;
 import javax.swing.KeyStroke;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.TransferHandler;
@@ -282,7 +288,7 @@ public final class MainFrame extends JFrame implements UserActions {
             setPlainStatus("ソースが見つかりません");
             return;
         }
-        sourceDialog.showFile(file, Math.max(1, node.line()));
+        showSource(file, Math.max(1, node.line()));
     }
 
     @Override
@@ -296,17 +302,57 @@ public final class MainFrame extends JFrame implements UserActions {
             setPlainStatus("プロジェクト内にソースがありません: " + frame.fileName() + ":" + frame.line());
             return;
         }
-        sourceDialog.showFile(file, frame.line());
+        showSource(file, frame.line());
+    }
+
+    private void showSource(Path file, int line) {
+        int row = Math.max(1, line);
+        if (!settings.externalEditor()) {
+            sourceDialog.showFile(file, row);
+            return;
+        }
+        if (settings.editorCommand().isBlank()) {
+            setPlainStatus("外部エディタのコマンドが未設定です");
+            sourceDialog.showFile(file, row);
+            return;
+        }
+        try {
+            ExternalEditor.open(settings.editorCommand(), file, row);
+            setPlainStatus("外部エディタで開きました: " + file.getFileName() + ":" + row);
+        } catch (IOException ex) {
+            setPlainStatus("外部エディタを起動できません: " + ex.getMessage());
+            sourceDialog.showFile(file, row);
+        }
     }
 
     @Override
     public void copySelector(TestNode node) {
-        if (node == null || (node.kind() != TestKind.METHOD && node.kind() != TestKind.CLASS)) {
+        if (node == null || (node.kind() != TestKind.METHOD && node.kind() != TestKind.CLASS && node.kind() != TestKind.SUITE)) {
             return;
         }
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(node.selector()), null);
             setPlainStatus("コピーしました: " + node.selector());
+        } catch (IllegalStateException ex) {
+            setPlainStatus("クリップボードを使えませんでした");
+        }
+    }
+
+    @Override
+    public void copyTestCommand(TestNode node) {
+        if (workspace == null) {
+            return;
+        }
+        RunPlans.Spec spec = node == null ? RunPlans.Spec.all() : RunPlans.Spec.node(node);
+        RunPlans.Plan plan = RunPlans.build(workspace, spec, false);
+        if (plan == null) {
+            setPlainStatus("コピーできる mvn test コマンドがありません");
+            return;
+        }
+        String command = MavenCommands.clipboardCommand(plan.mavenArgs());
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(command), null);
+            setPlainStatus("mvn test コマンドをコピーしました");
         } catch (IllegalStateException ex) {
             setPlainStatus("クリップボードを使えませんでした");
         }
@@ -500,6 +546,28 @@ public final class MainFrame extends JFrame implements UserActions {
             showSummary();
         });
         view.add(theme);
+        JCheckBoxMenuItem external = new JCheckBoxMenuItem("外部エディタで開く", settings.externalEditor());
+        external.addActionListener(event -> {
+            if (external.isSelected() && settings.editorCommand().isBlank() && !editEditorCommand()) {
+                external.setSelected(false);
+                return;
+            }
+            if (settings.editorCommand().isBlank()) {
+                external.setSelected(false);
+            }
+            settings.setExternalEditor(external.isSelected());
+            settings.save();
+        });
+        view.add(external);
+        view.add(item("外部エディタを設定...", null, () -> {
+            if (!editEditorCommand()) {
+                return;
+            }
+            boolean enabled = !settings.editorCommand().isBlank();
+            settings.setExternalEditor(enabled);
+            external.setSelected(enabled);
+            settings.save();
+        }));
         view.add(item("出力をクリア", null, this::clearOutput));
         JMenu help = new JMenu("ヘルプ");
         help.add(item("使い方", null, this::showHelp));
@@ -509,6 +577,42 @@ public final class MainFrame extends JFrame implements UserActions {
         bar.add(help);
         rebuildRecent();
         return bar;
+    }
+
+    private boolean editEditorCommand() {
+        JTextField field = new JTextField(settings.editorCommand(), 42);
+        JButton browse = new JButton("参照...");
+        browse.addActionListener(event -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("外部エディタを選択");
+            chooser.setFileFilter(new FileNameExtensionFilter("プログラム (*.exe)", "exe"));
+            if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+            String path = chooser.getSelectedFile().getAbsolutePath();
+            if (path.indexOf(' ') >= 0) {
+                path = "\"" + path + "\"";
+            }
+            field.setText(path + " \"{file}\" -Y={line}");
+        });
+        JPanel command = new JPanel(new BorderLayout(8, 0));
+        command.add(field, BorderLayout.CENTER);
+        command.add(browse, BorderLayout.EAST);
+        JLabel hint = new JLabel("<html>{file} にファイル、{line} に行番号が入ります。<br>サクラエディタは -Y={line} でその行を開きます。</html>");
+        JPanel form = new JPanel();
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        hint.setAlignmentX(0);
+        command.setAlignmentX(0);
+        form.add(hint);
+        form.add(Box.createVerticalStrut(8));
+        form.add(command);
+        int choice = JOptionPane.showConfirmDialog(this, form, "外部エディタ", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return false;
+        }
+        settings.setEditorCommand(field.getText());
+        settings.save();
+        return true;
     }
 
     private void rebuildRecent() {
@@ -535,7 +639,7 @@ public final class MainFrame extends JFrame implements UserActions {
                 1. プロジェクトを開くで、pom.xml があるフォルダを選びます。フォルダのドロップもできます。
                 2. src/test/java の @Test などがツリーに並びます。
                 3. 実行すると mvn test が走り、失敗のメッセージとスタックトレースを表示します。
-                4. スタックトレースの行をクリックすると、そのソースを開きます。
+                4. スタックトレースの行をクリックすると、そのソースを開きます。表示メニューで外部エディタ（サクラエディタなど）に切り替えられます。
                 5. 変更を監視すると、ソース保存後に直前のテストを再実行します。
                 6. デバッグはポート 5005 で待ち受けます。IDE のリモートデバッグから接続してください。
 

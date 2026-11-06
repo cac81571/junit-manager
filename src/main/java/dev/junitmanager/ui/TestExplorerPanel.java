@@ -131,7 +131,7 @@ public final class TestExplorerPanel extends JPanel {
             DefaultMutableTreeNode root = build(workspace.tree(), filter.getText().trim(), selectedStatus(), false);
             model.setRoot(root == null ? new DefaultMutableTreeNode(workspace.tree()) : root);
             boolean noTests = workspace.methodCount() == 0;
-            boolean filteredOut = !noTests && showingCount() == 0;
+            boolean filteredOut = !noTests && (root == null || root.getChildCount() == 0);
             if (noTests) {
                 showEmpty("@Test の付いたメソッドは見つかりませんでした。", false);
             } else if (filteredOut) {
@@ -317,9 +317,10 @@ public final class TestExplorerPanel extends JPanel {
         if (node.sourceFile() != null) {
             item(menu, "ソースを表示", () -> actions.openSource(node));
         }
-        if (node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS) {
+        if (node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) {
             item(menu, "セレクタをコピー", () -> actions.copySelector(node));
         }
+        item(menu, "mvn test をコピー", () -> actions.copyTestCommand(node));
         item(menu, "フォルダを開く", () -> actions.reveal(node));
         menu.show(tree, event.getX(), event.getY());
     }
@@ -370,8 +371,10 @@ public final class TestExplorerPanel extends JPanel {
                 treeNode.add(built);
             }
         }
-        if (treeNode.getChildCount() == 0 && node.kind() != TestKind.ROOT) {
-            return null;
+        if (treeNode.getChildCount() == 0 && node.kind() != TestKind.ROOT && node.kind() != TestKind.SUITE) {
+            if (node.parent() == null || node.parent().kind() != TestKind.SUITE) {
+                return null;
+            }
         }
         return treeNode;
     }
@@ -517,7 +520,11 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     private static int countMethods(DefaultMutableTreeNode node) {
-        int count = nodeOf(node) != null && nodeOf(node).kind() == TestKind.METHOD ? 1 : 0;
+        TestNode test = nodeOf(node);
+        if (test != null && test.kind() == TestKind.SUITE) {
+            return 0;
+        }
+        int count = test != null && test.kind() == TestKind.METHOD ? 1 : 0;
         for (int i = 0; i < node.getChildCount(); i++) {
             count += countMethods((DefaultMutableTreeNode) node.getChildAt(i));
         }
@@ -534,12 +541,24 @@ public final class TestExplorerPanel extends JPanel {
                 return this;
             }
             setIcon(AppIcon.status(node.status(), spin));
+            String order = node.hasOrder() ? Integer.toString(node.order()) : "";
             String duration = node.durationLabel();
-            if (selected || duration.isEmpty()) {
-                setText(duration.isEmpty() ? node.displayName() : node.displayName() + "    " + duration);
+            if (selected) {
+                String text = order.isEmpty() ? node.displayName() : order + "  " + node.displayName();
+                setText(duration.isEmpty() ? text : text + "    " + duration);
+            } else if (order.isEmpty() && duration.isEmpty()) {
+                setText(node.displayName());
             } else {
-                setText("<html>" + Ui.escape(node.displayName())
-                        + " <font color='#8B949E'>" + Ui.escape(duration) + "</font></html>");
+                StringBuilder html = new StringBuilder("<html>");
+                if (!order.isEmpty()) {
+                    html.append("<font color='#8B949E'>").append(Ui.escape(order)).append("</font> ");
+                }
+                html.append(Ui.escape(node.displayName()));
+                if (!duration.isEmpty()) {
+                    html.append(" <font color='#8B949E'>").append(Ui.escape(duration)).append("</font>");
+                }
+                html.append("</html>");
+                setText(html.toString());
             }
             setToolTipText(tooltip(node));
             return this;
@@ -551,14 +570,18 @@ public final class TestExplorerPanel extends JPanel {
             case ROOT -> "プロジェクト";
             case MODULE -> "モジュール";
             case PACKAGE -> "パッケージ";
+            case SUITE -> "スイート";
             case CLASS -> "クラス";
             case METHOD -> "テスト";
         };
         StringBuilder text = new StringBuilder(kind).append('\n').append(node.displayName());
         if (node.kind() == TestKind.METHOD) {
             text.append('\n').append(node.selector());
-        } else if (node.kind() == TestKind.CLASS && node.fqcn() != null) {
+        } else if ((node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) && node.fqcn() != null) {
             text.append('\n').append(node.fqcn());
+        }
+        if (node.hasOrder()) {
+            text.append('\n').append("@Order ").append(node.order());
         }
         text.append('\n').append(node.status().label());
         if (!node.durationLabel().isEmpty()) {

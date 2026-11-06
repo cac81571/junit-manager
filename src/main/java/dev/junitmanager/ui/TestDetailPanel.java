@@ -44,6 +44,7 @@ public final class TestDetailPanel extends JPanel {
     private final JButton runButton = new JButton("実行");
     private final JButton sourceButton = new JButton("ソースを表示");
     private final JButton copyButton = new JButton("セレクタをコピー");
+    private final JButton commandButton = new JButton("mvn test をコピー");
     private TestNode current;
     private Workspace workspace;
 
@@ -176,11 +177,13 @@ public final class TestDetailPanel extends JPanel {
                 actions.copySelector(current);
             }
         });
+        commandButton.addActionListener(event -> actions.copyTestCommand(current));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
         buttons.setOpaque(false);
         buttons.add(runButton);
         buttons.add(sourceButton);
         buttons.add(copyButton);
+        buttons.add(commandButton);
         add(buttons, BorderLayout.SOUTH);
         show(null, null);
     }
@@ -201,6 +204,7 @@ public final class TestDetailPanel extends JPanel {
             outputBox.setVisible(false);
             sourceButton.setEnabled(false);
             copyButton.setEnabled(false);
+            commandButton.setEnabled(workspace != null);
             runButton.setEnabled(workspace != null);
             return;
         }
@@ -209,7 +213,8 @@ public final class TestDetailPanel extends JPanel {
         meta.setText(meta(node));
         stripe.setBackground(color(node.status()));
         sourceButton.setEnabled(node.sourceFile() != null || node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS);
-        copyButton.setEnabled(node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS);
+        copyButton.setEnabled(node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE);
+        commandButton.setEnabled(true);
         runButton.setEnabled(true);
         if (node.kind() == TestKind.METHOD) {
             showMethod(node);
@@ -318,7 +323,7 @@ public final class TestDetailPanel extends JPanel {
     private static String subtitle(TestNode node) {
         return switch (node.kind()) {
             case METHOD -> node.fqcn() + "#" + node.methodName();
-            case CLASS -> node.fqcn();
+            case SUITE, CLASS -> node.fqcn();
             case PACKAGE -> node.fqcn() == null || node.fqcn().isBlank() ? "デフォルトパッケージ" : node.fqcn();
             case MODULE -> String.valueOf(node.moduleDir());
             case ROOT -> "プロジェクト";
@@ -329,6 +334,12 @@ public final class TestDetailPanel extends JPanel {
         StringBuilder text = new StringBuilder(node.status().label());
         if (!node.durationLabel().isEmpty()) {
             text.append("  ·  ").append(node.durationLabel());
+        }
+        if (node.hasOrder()) {
+            text.append("  ·  @Order ").append(node.order());
+        }
+        if (node.kind() == TestKind.SUITE) {
+            text.append("  ·  スイート");
         }
         if (node.kind() == TestKind.METHOD && !node.framework().label().isEmpty()) {
             text.append("  ·  ").append(node.framework().label());

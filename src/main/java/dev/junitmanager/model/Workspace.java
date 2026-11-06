@@ -31,8 +31,9 @@ public final class Workspace {
         this.warnings = List.copyOf(warnings);
         this.classesByKey = new LinkedHashMap<>();
         tree.walk(node -> {
-            if (node.kind() == TestKind.CLASS && node.moduleDir() != null && node.fqcn() != null) {
-                classesByKey.put(classKey(node.moduleDir(), node.fqcn()), node);
+            if (node.kind() == TestKind.CLASS && node.ancestor(TestKind.SUITE) == null
+                    && node.moduleDir() != null && node.fqcn() != null) {
+                classesByKey.putIfAbsent(classKey(node.moduleDir(), node.fqcn()), node);
                 classesByKey.putIfAbsent(classKey(node.moduleDir(), node.fqcn().replace('$', '.')), node);
             }
         });
@@ -109,7 +110,8 @@ public final class Workspace {
     public Map<String, Snapshot> snapshotResults() {
         Map<String, Snapshot> snapshots = new LinkedHashMap<>();
         tree.walk(node -> {
-            if (node.kind() == TestKind.METHOD && !node.synthetic() && node.status() != TestStatus.NOT_RUN) {
+            if (node.kind() == TestKind.METHOD && !node.synthetic() && node.ancestor(TestKind.SUITE) == null
+                    && node.status() != TestStatus.NOT_RUN) {
                 snapshots.put(node.key(), new Snapshot(node.status(), node.durationMillis(), node.cases()));
             }
         });
@@ -136,7 +138,7 @@ public final class Workspace {
             node.setDurationMillis(snapshot.durationMillis);
             node.setCases(snapshot.cases);
         });
-        tree.rollup();
+        tree.syncDuplicates();
     }
 
     private static String classKey(Path moduleDir, String className) {

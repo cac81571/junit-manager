@@ -144,6 +144,133 @@ class TestDiscoveryTest {
         assertEquals("保留", method(workspace, "disabledOne").ignoreReason());
     }
 
+    @Test
+    void listsJUnit4AndJUnit5Suites() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/ATest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Test;
+                class ATest {
+                    @Test void alpha() {}
+                }
+                """);
+        write(temp.resolve("src/test/java/com/example/AllLegacy.java"), """
+                package com.example;
+                import org.junit.runner.RunWith;
+                import org.junit.runners.Suite;
+                @RunWith(Suite.class)
+                @Suite.SuiteClasses(ATest.class)
+                public class AllLegacy {}
+                """);
+        write(temp.resolve("src/test/java/com/example/AllJupiter.java"), """
+                package com.example;
+                import org.junit.platform.suite.api.SelectClasses;
+                import org.junit.platform.suite.api.SelectPackages;
+                import org.junit.platform.suite.api.Suite;
+                @Suite
+                @SelectClasses(ATest.class)
+                @SelectPackages("com.example")
+                class AllJupiter {}
+                """);
+
+        Workspace workspace = TestDiscovery.discover(temp);
+        assertEquals(1, workspace.methodCount(), dump(workspace.tree()));
+        TestNode legacy = suite(workspace, "AllLegacy");
+        assertEquals("com.example.AllLegacy", legacy.fqcn());
+        assertEquals(List.of("ATest"), legacy.children().stream().map(TestNode::name).toList());
+        assertEquals(1, legacy.methodCount());
+        TestNode jupiter = suite(workspace, "AllJupiter");
+        assertEquals(List.of("ATest"), jupiter.children().stream().map(TestNode::name).toList());
+        RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(legacy), false);
+        assertTrue(plan.mavenArgs().stream().anyMatch(arg -> arg.equals("-Dtest=com.example.AllLegacy")), plan.mavenArgs().toString());
+    }
+
+    @Test
+    void listsSelectMethodWithoutTheRestOfTheClass() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/ATest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Nested;
+                import org.junit.jupiter.api.Test;
+                class ATest {
+                    @Test void alpha() {}
+                    @Test void beta() {}
+                    @Nested class Inner {
+                        @Test void inner() {}
+                    }
+                }
+                """);
+        write(temp.resolve("src/test/java/com/example/Picked.java"), """
+                package com.example;
+                import org.junit.platform.suite.api.SelectMethod;
+                import org.junit.platform.suite.api.SelectMethods;
+                import org.junit.platform.suite.api.Suite;
+                @Suite
+                @SelectMethod(type = ATest.class, name = "beta")
+                @SelectMethod("com.example.ATest#alpha()")
+                @SelectMethod(type = ATest.Inner.class, name = "inner")
+                @SelectMethods({
+                    @SelectMethod(typeName = "com.example.ATest", name = "beta"),
+                    @SelectMethod("com.example.ATest$Inner#inner")
+                })
+                class Picked {}
+                """);
+
+        Workspace workspace = TestDiscovery.discover(temp);
+        assertEquals(3, workspace.methodCount(), dump(workspace.tree()));
+        TestNode suite = suite(workspace, "Picked");
+        assertEquals(List.of("ATest", "Inner"), suite.children().stream().map(TestNode::name).toList());
+        TestNode aTest = suite.children().get(0);
+        assertEquals(List.of("beta", "alpha"), aTest.children().stream().map(TestNode::methodName).toList());
+        TestNode inner = suite.children().get(1);
+        assertEquals("com.example.ATest$Inner", inner.fqcn());
+        assertEquals(List.of("inner"), inner.children().stream().map(TestNode::methodName).toList());
+        assertEquals(3, suite.methodCount());
+    }
+
+    @Test
+    void listsMethodsAndNestedClassesInOrder() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/OrderedTest.java"), """
+                package com.example;
+                import org.junit.jupiter.api.Nested;
+                import org.junit.jupiter.api.Order;
+                import org.junit.jupiter.api.Test;
+                class OrderedTest {
+                    @Test @Order(3) void third() {}
+                    @Test void plain() {}
+                    @Test @Order(1) void first() {}
+                    @Test @Order(value = 1) void alsoFirst() {}
+                    @Nested @Order(2) class Second {
+                        @Test void nested() {}
+                    }
+                    @Test @Order(-1) void veryFirst() {}
+                }
+                """);
+
+        Workspace workspace = TestDiscovery.discover(temp);
+        TestNode type = workspace.tree().children().get(0).children().get(0);
+        assertEquals("OrderedTest", type.name());
+        assertEquals(
+                List.of("veryFirst", "first", "alsoFirst", "Second", "third", "plain"),
+                type.children().stream().map(TestNode::name).toList()
+        );
+        assertTrue(type.children().get(0).hasOrder());
+        assertEquals(-1, type.children().get(0).order());
+        assertEquals(2, type.children().get(3).order());
+        assertFalse(type.children().get(5).hasOrder());
+    }
+
+    private static TestNode suite(Workspace workspace, String name) {
+        TestNode[] found = new TestNode[1];
+        workspace.tree().walk(node -> {
+            if (found[0] == null && node.kind() == TestKind.SUITE && name.equals(node.name())) {
+                found[0] = node;
+            }
+        });
+        return found[0];
+    }
+
     private static TestNode method(Workspace workspace, String name) {
         return workspace.realMethods().stream()
                 .filter(node -> node.methodName().equals(name))

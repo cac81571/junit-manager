@@ -19,6 +19,8 @@ public final class UserSettings {
     private int height;
     private int dividerMain = 360;
     private int dividerVertical = 420;
+    private boolean externalEditor;
+    private String editorCommand = "";
 
     public static Path file() {
         String override = System.getProperty("junitmanager.settings");
@@ -48,6 +50,9 @@ public final class UserSettings {
         settings.height = parseInt(properties.getProperty("window.h"), 0);
         settings.dividerMain = parseInt(properties.getProperty("divider.main"), 360);
         settings.dividerVertical = parseInt(properties.getProperty("divider.vertical"), 420);
+        settings.externalEditor = Boolean.parseBoolean(properties.getProperty("editor.external"));
+        String command = properties.getProperty("editor.command");
+        settings.editorCommand = command == null ? "" : command;
         for (int i = 0; i < 8; i++) {
             String value = properties.getProperty("recent." + i);
             if (value != null && !value.isBlank()) {
@@ -67,6 +72,8 @@ public final class UserSettings {
         properties.setProperty("window.h", Integer.toString(height));
         properties.setProperty("divider.main", Integer.toString(dividerMain));
         properties.setProperty("divider.vertical", Integer.toString(dividerVertical));
+        properties.setProperty("editor.external", Boolean.toString(externalEditor));
+        properties.setProperty("editor.command", editorCommand == null ? "" : editorCommand);
         for (int i = 0; i < recent.size() && i < 8; i++) {
             properties.setProperty("recent." + i, recent.get(i).toString());
         }
@@ -146,6 +153,22 @@ public final class UserSettings {
 
     public int dividerVertical() {
         return dividerVertical;
+    }
+
+    public boolean externalEditor() {
+        return externalEditor;
+    }
+
+    public void setExternalEditor(boolean externalEditor) {
+        this.externalEditor = externalEditor;
+    }
+
+    public String editorCommand() {
+        return editorCommand == null ? "" : editorCommand;
+    }
+
+    public void setEditorCommand(String editorCommand) {
+        this.editorCommand = editorCommand == null ? "" : editorCommand.trim();
     }
 
     public void setDividers(int main, int vertical) {

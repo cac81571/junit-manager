@@ -4,7 +4,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public final class TestNode {
@@ -25,6 +27,7 @@ public final class TestNode {
     private TestNode parent;
     private TestStatus status;
     private long durationMillis = -1;
+    private int order = Integer.MAX_VALUE;
 
     public TestNode(
             TestKind kind,
@@ -108,6 +111,18 @@ public final class TestNode {
 
     public int line() {
         return line;
+    }
+
+    public int order() {
+        return order;
+    }
+
+    public boolean hasOrder() {
+        return order != Integer.MAX_VALUE;
+    }
+
+    public void setOrder(int order) {
+        this.order = order;
     }
 
     public boolean disabled() {
@@ -218,6 +233,7 @@ public final class TestNode {
         String module = moduleDir == null ? "" : moduleDir.toAbsolutePath().normalize().toString();
         return switch (kind) {
             case METHOD -> module + "|M|" + fqcn + "#" + methodName;
+            case SUITE -> module + "|S|" + fqcn;
             case CLASS -> module + "|C|" + fqcn;
             case PACKAGE -> module + "|P|" + name;
             case MODULE -> module + "|D|";
@@ -228,7 +244,7 @@ public final class TestNode {
     public String selector() {
         return switch (kind) {
             case METHOD -> fqcn + "#" + methodName;
-            case CLASS -> fqcn;
+            case SUITE, CLASS -> fqcn;
             default -> displayName;
         };
     }
@@ -242,8 +258,13 @@ public final class TestNode {
 
     public List<TestNode> realMethods() {
         List<TestNode> methods = new ArrayList<>();
+        boolean fromSuite = kind == TestKind.SUITE || ancestor(TestKind.SUITE) != null;
         walk(node -> {
-            if (node.kind == TestKind.METHOD && !node.synthetic) {
+            if (node.kind != TestKind.METHOD || node.synthetic) {
+                return;
+            }
+            boolean inSuite = node.ancestor(TestKind.SUITE) != null;
+            if (fromSuite || !inSuite) {
                 methods.add(node);
             }
         });
@@ -255,7 +276,11 @@ public final class TestNode {
             return status == wanted ? 1 : 0;
         }
         int total = 0;
+        boolean onlySuites = !children.isEmpty() && children.stream().allMatch(child -> child.kind == TestKind.SUITE);
         for (TestNode child : children) {
+            if (!onlySuites && kind != TestKind.SUITE && child.kind == TestKind.SUITE) {
+                continue;
+            }
             total += child.count(wanted);
         }
         return total;
@@ -266,10 +291,39 @@ public final class TestNode {
             return 1;
         }
         int total = 0;
+        boolean onlySuites = !children.isEmpty() && children.stream().allMatch(child -> child.kind == TestKind.SUITE);
         for (TestNode child : children) {
+            if (!onlySuites && kind != TestKind.SUITE && child.kind == TestKind.SUITE) {
+                continue;
+            }
             total += child.methodCount();
         }
         return total;
+    }
+
+    public void syncDuplicates() {
+        Map<String, TestNode> canonical = new LinkedHashMap<>();
+        List<TestNode> methods = new ArrayList<>();
+        walk(node -> {
+            if (node.kind == TestKind.METHOD && !node.synthetic) {
+                methods.add(node);
+            }
+        });
+        for (TestNode node : methods) {
+            if (node.ancestor(TestKind.SUITE) == null) {
+                canonical.putIfAbsent(node.key(), node);
+            }
+        }
+        for (TestNode node : methods) {
+            TestNode source = canonical.get(node.key());
+            if (source == null || source == node) {
+                continue;
+            }
+            node.setStatus(source.status());
+            node.setDurationMillis(source.durationMillis());
+            node.setCases(List.copyOf(source.cases()));
+        }
+        rollup();
     }
 
     public TestNode ancestor(TestKind wanted) {
@@ -287,6 +341,7 @@ public final class TestNode {
         if (kind == TestKind.METHOD || children.isEmpty()) {
             return;
         }
+        boolean onlySuites = children.stream().allMatch(child -> child.kind == TestKind.SUITE);
         boolean failed = false;
         boolean running = false;
         boolean notRun = false;
@@ -295,7 +350,12 @@ public final class TestNode {
         long duration = 0;
         boolean anyDuration = false;
         boolean allDuration = true;
+        boolean aggregated = false;
         for (TestNode child : children) {
+            if (!onlySuites && kind != TestKind.SUITE && child.kind == TestKind.SUITE) {
+                continue;
+            }
+            aggregated = true;
             switch (child.status) {
                 case FAILED -> failed = true;
                 case RUNNING -> running = true;
@@ -309,6 +369,9 @@ public final class TestNode {
             } else {
                 allDuration = false;
             }
+        }
+        if (!aggregated) {
+            return;
         }
         if (failed) {
             status = TestStatus.FAILED;

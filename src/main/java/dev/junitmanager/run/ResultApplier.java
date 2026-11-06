@@ -45,6 +45,13 @@ public final class ResultApplier {
             method.setDurationMillis(-1);
         }
         rollup(scope);
+        if (!scope.isEmpty()) {
+            TestNode root = scope.get(0);
+            while (root.parent() != null) {
+                root = root.parent();
+            }
+            root.syncDuplicates();
+        }
         return structural;
     }
 
@@ -84,7 +91,7 @@ public final class ResultApplier {
             classNode.addChild(TestNode.synthetic(classNode, report.name(), toCase(report)));
             structural = true;
         }
-        workspace.tree().rollup();
+        workspace.tree().syncDuplicates();
         return structural;
     }
 

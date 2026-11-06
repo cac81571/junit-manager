@@ -61,6 +61,19 @@ class SurefireAndCommandTest {
         }
     }
 
+    @Test
+    void clipboardCommandIsOnlyTestSelector() {
+        String command = MavenCommands.clipboardCommand(List.of(
+                "-B",
+                "-Dstyle.color=always",
+                "-DtrimStackTrace=false",
+                "-Dsurefire.failIfNoSpecifiedTests=false",
+                "-Dtest=com.example.Calc$Div#divides",
+                "test"));
+        assertEquals("mvn test -Dtest=com.example.Calc$Div#divides", command);
+        assertEquals("mvn test", MavenCommands.clipboardCommand(List.of("-B", "test")));
+    }
+
     private static String report(String name, String tag, String message, String trace) {
         return """
                 <?xml version="1.0" encoding="UTF-8"?>

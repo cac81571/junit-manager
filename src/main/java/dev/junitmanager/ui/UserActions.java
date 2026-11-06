@@ -27,6 +27,8 @@ public interface UserActions {
 
     void copySelector(TestNode node);
 
+    void copyTestCommand(TestNode node);
+
     void reveal(TestNode node);
 
     void selectNode(TestNode node);
