@@ -21,6 +21,7 @@ public final class UserSettings {
     private int dividerVertical = 420;
     private boolean externalEditor;
     private String editorCommand = "";
+    private boolean physicalNames;
 
     public static Path file() {
         String override = System.getProperty("junitmanager.settings");
@@ -53,6 +54,7 @@ public final class UserSettings {
         settings.externalEditor = Boolean.parseBoolean(properties.getProperty("editor.external"));
         String command = properties.getProperty("editor.command");
         settings.editorCommand = command == null ? "" : command;
+        settings.physicalNames = "physical".equalsIgnoreCase(properties.getProperty("tree.labels"));
         for (int i = 0; i < 8; i++) {
             String value = properties.getProperty("recent." + i);
             if (value != null && !value.isBlank()) {
@@ -74,6 +76,7 @@ public final class UserSettings {
         properties.setProperty("divider.vertical", Integer.toString(dividerVertical));
         properties.setProperty("editor.external", Boolean.toString(externalEditor));
         properties.setProperty("editor.command", editorCommand == null ? "" : editorCommand);
+        properties.setProperty("tree.labels", physicalNames ? "physical" : "display");
         for (int i = 0; i < recent.size() && i < 8; i++) {
             properties.setProperty("recent." + i, recent.get(i).toString());
         }
@@ -169,6 +172,14 @@ public final class UserSettings {
 
     public void setEditorCommand(String editorCommand) {
         this.editorCommand = editorCommand == null ? "" : editorCommand.trim();
+    }
+
+    public boolean physicalNames() {
+        return physicalNames;
+    }
+
+    public void setPhysicalNames(boolean physicalNames) {
+        this.physicalNames = physicalNames;
     }
 
     public void setDividers(int main, int vertical) {

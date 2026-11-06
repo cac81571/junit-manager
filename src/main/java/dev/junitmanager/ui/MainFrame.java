@@ -16,8 +16,10 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.BoxLayout;
+import javax.swing.ButtonGroup;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JFileChooser;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -110,6 +112,7 @@ public final class MainFrame extends JFrame implements UserActions {
             vertical.setDividerLocation(settings.dividerVertical());
         });
         explorer.setWatchSelected(settings.watch());
+        explorer.setPhysicalNames(settings.physicalNames());
         setIconImages(windowIcons());
         SwingUtilities.updateComponentTreeUI(this);
         sourceDialog.applyTheme();
@@ -546,6 +549,17 @@ public final class MainFrame extends JFrame implements UserActions {
             showSummary();
         });
         view.add(theme);
+        view.addSeparator();
+        ButtonGroup names = new ButtonGroup();
+        JRadioButtonMenuItem displayNames = new JRadioButtonMenuItem("表示名 (@DisplayName)", !settings.physicalNames());
+        JRadioButtonMenuItem physicalNames = new JRadioButtonMenuItem("物理名 (クラス名・メソッド名)", settings.physicalNames());
+        names.add(displayNames);
+        names.add(physicalNames);
+        displayNames.addActionListener(event -> applyTreeLabels(false));
+        physicalNames.addActionListener(event -> applyTreeLabels(true));
+        view.add(displayNames);
+        view.add(physicalNames);
+        view.addSeparator();
         JCheckBoxMenuItem external = new JCheckBoxMenuItem("外部エディタで開く", settings.externalEditor());
         external.addActionListener(event -> {
             if (external.isSelected() && settings.editorCommand().isBlank() && !editEditorCommand()) {
@@ -577,6 +591,12 @@ public final class MainFrame extends JFrame implements UserActions {
         bar.add(help);
         rebuildRecent();
         return bar;
+    }
+
+    private void applyTreeLabels(boolean physical) {
+        settings.setPhysicalNames(physical);
+        settings.save();
+        explorer.setPhysicalNames(physical);
     }
 
     private boolean editEditorCommand() {
@@ -637,7 +657,7 @@ public final class MainFrame extends JFrame implements UserActions {
                 JUnit Manager は Maven プロジェクトの JUnit を、VS Code のテストタブのように一覧して実行します。
 
                 1. プロジェクトを開くで、pom.xml があるフォルダを選びます。フォルダのドロップもできます。
-                2. src/test/java の @Test などがツリーに並びます。
+                2. src/test/java の @Test などがツリーに並びます。表示メニューで、@DisplayName とクラス名・メソッド名を切り替えられます。
                 3. 実行すると mvn test が走り、失敗のメッセージとスタックトレースを表示します。
                 4. スタックトレースの行をクリックすると、そのソースを開きます。表示メニューで外部エディタ（サクラエディタなど）に切り替えられます。
                 5. 変更を監視すると、ソース保存後に直前のテストを再実行します。

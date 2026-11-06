@@ -28,6 +28,7 @@ import javax.swing.tree.TreePath;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
@@ -65,6 +66,7 @@ public final class TestExplorerPanel extends JPanel {
     });
     private Workspace workspace;
     private boolean applying;
+    private boolean physicalNames;
 
     public TestExplorerPanel(UserActions actions) {
         super(new BorderLayout());
@@ -106,6 +108,17 @@ public final class TestExplorerPanel extends JPanel {
 
     public void setWatchSelected(boolean selected) {
         watch.setSelected(selected);
+    }
+
+    public void setPhysicalNames(boolean physicalNames) {
+        this.physicalNames = physicalNames;
+        remeasureRows();
+    }
+
+    private void remeasureRows() {
+        int rowHeight = tree.getRowHeight();
+        tree.setRowHeight(rowHeight == 0 ? 1 : 0);
+        tree.setRowHeight(rowHeight);
     }
 
     public void setWorkspace(Workspace workspace) {
@@ -532,28 +545,30 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     private final class Renderer extends DefaultTreeCellRenderer {
+        private String plain = "";
+
         @Override
         public Component getTreeCellRendererComponent(
                 JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
+            plain = "";
             TestNode node = nodeOf(value);
             if (node == null) {
                 return this;
             }
             setIcon(AppIcon.status(node.status(), spin));
+            String label = treeLabel(node);
             String order = node.hasOrder() ? Integer.toString(node.order()) : "";
             String duration = node.durationLabel();
-            if (selected) {
-                String text = order.isEmpty() ? node.displayName() : order + "  " + node.displayName();
-                setText(duration.isEmpty() ? text : text + "    " + duration);
-            } else if (order.isEmpty() && duration.isEmpty()) {
-                setText(node.displayName());
+            plain = plainLabel(order, label, duration);
+            if (selected || (order.isEmpty() && duration.isEmpty())) {
+                setText(plain);
             } else {
                 StringBuilder html = new StringBuilder("<html>");
                 if (!order.isEmpty()) {
                     html.append("<font color='#8B949E'>").append(Ui.escape(order)).append("</font> ");
                 }
-                html.append(Ui.escape(node.displayName()));
+                html.append(Ui.escape(label));
                 if (!duration.isEmpty()) {
                     html.append(" <font color='#8B949E'>").append(Ui.escape(duration)).append("</font>");
                 }
@@ -563,9 +578,37 @@ public final class TestExplorerPanel extends JPanel {
             setToolTipText(tooltip(node));
             return this;
         }
+
+        @Override
+        public Dimension getPreferredSize() {
+            String shown = getText();
+            if (shown == null || !shown.startsWith("<html>") || plain.isEmpty()) {
+                return super.getPreferredSize();
+            }
+            setText(plain);
+            Dimension size = super.getPreferredSize();
+            setText(shown);
+            return size;
+        }
+
+        private static String plainLabel(String order, String label, String duration) {
+            StringBuilder text = new StringBuilder();
+            if (!order.isEmpty()) {
+                text.append(order).append("  ");
+            }
+            text.append(label);
+            if (!duration.isEmpty()) {
+                text.append("    ").append(duration);
+            }
+            return text.toString();
+        }
     }
 
-    private static String tooltip(TestNode node) {
+    private String treeLabel(TestNode node) {
+        return physicalNames ? node.name() : node.displayName();
+    }
+
+    private String tooltip(TestNode node) {
         String kind = switch (node.kind()) {
             case ROOT -> "プロジェクト";
             case MODULE -> "モジュール";
@@ -574,7 +617,10 @@ public final class TestExplorerPanel extends JPanel {
             case CLASS -> "クラス";
             case METHOD -> "テスト";
         };
-        StringBuilder text = new StringBuilder(kind).append('\n').append(node.displayName());
+        StringBuilder text = new StringBuilder(kind).append('\n').append(treeLabel(node));
+        if (!node.name().equals(node.displayName())) {
+            text.append('\n').append(physicalNames ? node.displayName() : node.name());
+        }
         if (node.kind() == TestKind.METHOD) {
             text.append('\n').append(node.selector());
         } else if ((node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) && node.fqcn() != null) {
