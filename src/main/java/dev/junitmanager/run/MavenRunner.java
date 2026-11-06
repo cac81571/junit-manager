@@ -4,7 +4,7 @@ import javax.swing.SwingWorker;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -36,12 +36,16 @@ public final class MavenRunner {
                     ProcessBuilder builder = new ProcessBuilder(launch.command());
                     builder.directory(launch.directory().toFile());
                     builder.redirectErrorStream(true);
+                    useUtf8(builder);
                     proc = builder.start();
                     process = proc;
                     try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(proc.getInputStream(), Charset.defaultCharset()))) {
+                            new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
+                            if (line.startsWith("Picked up JAVA_TOOL_OPTIONS:")) {
+                                continue;
+                            }
                             publish(line);
                             if (stopRequested) {
                                 break;
@@ -96,6 +100,16 @@ public final class MavenRunner {
         Process proc = process;
         if (proc != null) {
             destroy(proc);
+        }
+    }
+
+    private static void useUtf8(ProcessBuilder builder) {
+        String option = "-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8";
+        String current = builder.environment().get("JAVA_TOOL_OPTIONS");
+        if (current == null || current.isBlank()) {
+            builder.environment().put("JAVA_TOOL_OPTIONS", option);
+        } else if (!current.contains("stderr.encoding")) {
+            builder.environment().put("JAVA_TOOL_OPTIONS", current + " " + option);
         }
     }
 

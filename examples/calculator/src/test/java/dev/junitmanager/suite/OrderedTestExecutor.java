@@ -1,4 +1,4 @@
-package dev.junitmanager.examples.calc;
+package dev.junitmanager.suite;
 
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.launcher.EngineFilter;

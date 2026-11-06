@@ -156,7 +156,7 @@ class TestDiscoveryTest {
         TestNode type = runner.ancestor(TestKind.CLASS);
         RunPlans.Plan fromMethod = RunPlans.build(workspace, RunPlans.Spec.node(runner), false);
         RunPlans.Plan fromClass = RunPlans.build(workspace, RunPlans.Spec.node(type), false);
-        String selector = "-Dtest=dev.junitmanager.examples.calc.OrderedSuiteRunner";
+        String selector = "-Dtest=dev.junitmanager.suite.OrderedSuiteRunner";
         assertEquals(selector, fromMethod.mavenArgs().stream().filter(arg -> arg.startsWith("-Dtest=")).findFirst().orElseThrow());
         assertEquals(selector, fromClass.mavenArgs().stream().filter(arg -> arg.startsWith("-Dtest=")).findFirst().orElseThrow());
         assertEquals(example, fromMethod.workingDirectory());
@@ -193,7 +193,7 @@ class TestDiscoveryTest {
     private static ReportedTest report(Path module, String name, TestStatus status, long duration) {
         return new ReportedTest(
                 module,
-                "dev.junitmanager.examples.calc.OrderedSuiteRunner",
+                "dev.junitmanager.suite.OrderedSuiteRunner",
                 name,
                 status,
                 duration,

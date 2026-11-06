@@ -1,4 +1,4 @@
-package dev.junitmanager.examples.calc;
+package dev.junitmanager.suite;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

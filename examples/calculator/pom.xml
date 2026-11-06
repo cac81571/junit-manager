@@ -35,14 +35,8 @@
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.2</version>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>3.5.0</version>
         <configuration>
-          <mainClass>dev.junitmanager.examples.calc.OrderedSuiteRunner</mainClass>
-          <classpathScope>test</classpathScope>
+          <argLine>-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8</argLine>
         </configuration>
       </plugin>
     </plugins>
