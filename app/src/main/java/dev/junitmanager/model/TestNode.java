@@ -64,12 +64,17 @@ public final class TestNode {
     }
 
     public static TestNode synthetic(TestNode classNode, String reportedName, CaseResult result) {
+        return synthetic(classNode, reportedName, reportedName, result);
+    }
+
+    public static TestNode synthetic(TestNode classNode, String name, String displayName, CaseResult result) {
+        String reported = result.name() == null || result.name().isBlank() ? name : result.name();
         TestNode node = new TestNode(
                 TestKind.METHOD,
-                reportedName,
-                reportedName,
+                name,
+                displayName,
                 classNode.fqcn(),
-                reportedName,
+                reported,
                 classNode.moduleDir(),
                 classNode.sourceFile(),
                 classNode.line(),

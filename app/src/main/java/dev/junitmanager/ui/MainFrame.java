@@ -111,7 +111,6 @@ public final class MainFrame extends JFrame implements UserActions {
             split.setDividerLocation(settings.dividerMain());
             vertical.setDividerLocation(settings.dividerVertical());
         });
-        explorer.setWatchSelected(settings.watch());
         explorer.setPhysicalNames(settings.physicalNames());
         setIconImages(windowIcons());
         SwingUtilities.updateComponentTreeUI(this);
@@ -182,9 +181,6 @@ public final class MainFrame extends JFrame implements UserActions {
                     }
                     setTitle("JUnit Manager — " + loaded.name());
                     showSummary();
-                    if (settings.watch()) {
-                        restartWatch();
-                    }
                 } catch (Exception ex) {
                     setPlainStatus("検出に失敗しました: " + rootMessage(ex));
                 }
@@ -237,7 +233,11 @@ public final class MainFrame extends JFrame implements UserActions {
     @Override
     public void debugSelected() {
         TestNode node = explorer.selected();
-        run(node == null ? RunPlans.Spec.all() : RunPlans.Spec.node(node), true);
+        if (node == null) {
+            setPlainStatus("テストを選択してください");
+            return;
+        }
+        run(RunPlans.Spec.node(node), true);
     }
 
     @Override
@@ -260,7 +260,6 @@ public final class MainFrame extends JFrame implements UserActions {
     public void watch(boolean enabled) {
         settings.setWatch(enabled);
         settings.save();
-        explorer.setWatchSelected(enabled);
         if (enabled) {
             restartWatch();
             setPlainStatus("ソースの変更を監視しています");
@@ -340,6 +339,66 @@ public final class MainFrame extends JFrame implements UserActions {
         } catch (IllegalStateException ex) {
             setPlainStatus("クリップボードを使えませんでした");
         }
+    }
+
+    @Override
+    public void copyName(TestNode node) {
+        String text = classAndMethod(node);
+        if (text == null || text.isBlank()) {
+            setPlainStatus("コピーできるクラス名がありません");
+            return;
+        }
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+            setPlainStatus("コピーしました: " + text);
+        } catch (IllegalStateException ex) {
+            setPlainStatus("クリップボードを使えませんでした");
+        }
+    }
+
+    private static String classAndMethod(TestNode node) {
+        if (node == null) {
+            return null;
+        }
+        if (node.synthetic()) {
+            String shown = node.displayName();
+            if (shown != null && !shown.isBlank() && !shown.equals(node.methodName())) {
+                return shown;
+            }
+        }
+        String type = simpleType(node.fqcn());
+        if (node.kind() == TestKind.METHOD) {
+            String method = node.name();
+            if (method == null || method.isBlank()) {
+                method = node.methodName();
+            }
+            if (method != null) {
+                int paren = method.indexOf('(');
+                if (paren > 0) {
+                    method = method.substring(0, paren);
+                }
+            }
+            if (type == null || type.isBlank()) {
+                return method;
+            }
+            if (method == null || method.isBlank()) {
+                return type;
+            }
+            return type + "#" + method;
+        }
+        if (node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) {
+            return type;
+        }
+        return null;
+    }
+
+    private static String simpleType(String fqcn) {
+        if (fqcn == null || fqcn.isBlank()) {
+            return null;
+        }
+        int dot = fqcn.lastIndexOf('.');
+        String simple = dot < 0 ? fqcn : fqcn.substring(dot + 1);
+        return simple.replace('$', '.');
     }
 
     @Override
@@ -554,7 +613,7 @@ public final class MainFrame extends JFrame implements UserActions {
         run.add(item("すべて実行", KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0), this::runAll));
         run.add(item("選択を実行", KeyStroke.getKeyStroke(KeyEvent.VK_F6, 0), this::runSelected));
         run.add(item("失敗を再実行", KeyStroke.getKeyStroke(KeyEvent.VK_F7, 0), this::runFailed));
-        run.add(item("デバッグ", KeyStroke.getKeyStroke(KeyEvent.VK_F5, shortcut()), this::debugSelected));
+        run.add(item("選択をデバッグ", KeyStroke.getKeyStroke(KeyEvent.VK_F5, shortcut()), this::debugSelected));
         run.add(item("停止", KeyStroke.getKeyStroke(KeyEvent.VK_F5, KeyEvent.SHIFT_DOWN_MASK), this::stop));
         run.addSeparator();
         run.add(item("結果をクリア", null, this::clearResults));
@@ -687,8 +746,7 @@ public final class MainFrame extends JFrame implements UserActions {
                 2. 「テスト」タブに @Test などが並びます。「スイート」タブには @Suite のクラスだけが出て、実行すると実行されたクラスとメソッドが下の枠に出ます。「ファクトリー」タブには @TestFactory のメソッドが出て、実行すると生成されたテストが下の枠に出ます。表示メニューで、@DisplayName とクラス名・メソッド名を切り替えられます。
                 3. 実行すると mvn test が走り、失敗のメッセージとスタックトレースを表示します。実行メニューの「結果をクリア」で、成功・失敗の表示を未実行に戻せます。
                 4. スタックトレースの行をクリックすると、そのソースを開きます。表示メニューで外部エディタ（サクラエディタなど）に切り替えられます。
-                5. 変更を監視すると、ソース保存後に直前のテストを再実行します。
-                6. デバッグはポート 5005 で待ち受けます。IDE のリモートデバッグから接続してください。
+                5. 選択をデバッグすると、ポート 5005 で待ち受けます。IDE のリモートデバッグから接続してください。
 
                 検出対象は JUnit 4（@Test @Theory @Ignore）と JUnit 5（@Test @ParameterizedTest @RepeatedTest @TestFactory @TestTemplate @Disabled @DisplayName @Nested）です。
                 """.stripIndent(), "使い方", JOptionPane.INFORMATION_MESSAGE);

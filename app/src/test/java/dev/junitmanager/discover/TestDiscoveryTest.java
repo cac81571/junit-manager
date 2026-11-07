@@ -6,6 +6,7 @@ import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.FactoryCases;
 import dev.junitmanager.run.ReportedTest;
 import dev.junitmanager.run.ResultApplier;
 import dev.junitmanager.run.RunPlans;
@@ -146,6 +147,15 @@ class TestDiscoveryTest {
         assertTrue(divides.fqcn().endsWith("CalculatorTest$Div"));
         assertTrue(method(workspace, "disabledOne").disabled());
         assertEquals("保留", method(workspace, "disabledOne").ignoreReason());
+        TestNode factory = method(workspace, "orderedTests");
+        List<FactoryCases.Call> calls = FactoryCases.read(Files.readString(factory.sourceFile()), factory.line());
+        assertEquals(List.of("CalculatorTest#adds", "CalculatorTest#div"), calls.stream().map(FactoryCases.Call::displayName).toList());
+        assertEquals("CalculatorTest", calls.get(0).typeName());
+        assertEquals("adds", calls.get(0).methodName());
+        assertEquals("CalculatorTest.Div", calls.get(1).typeName());
+        assertEquals("divides", calls.get(1).methodName());
+        assertEquals("CalculatorTest#adds", FactoryCases.displayName(calls, "orderedTests", "orderedTests()[1]"));
+        assertEquals("CalculatorTest#div", FactoryCases.displayName(calls, "orderedTests", "orderedTests()[2]"));
     }
 
     @Test

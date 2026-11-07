@@ -6,7 +6,9 @@ import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.FactoryCases;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -18,7 +20,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
-import javax.swing.JToggleButton;
+import javax.swing.KeyStroke;
 import javax.swing.JTree;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -35,10 +37,19 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class TestExplorerPanel extends JPanel {
     private static final String TREE = "tree";
@@ -66,15 +77,12 @@ public final class TestExplorerPanel extends JPanel {
     private final JLabel memberNone = new JLabel("", JLabel.CENTER);
     private final JLabel empty = new JLabel("", JLabel.CENTER);
     private final JLabel project = new JLabel("プロジェクト未選択");
-    private final JButton runAll;
     private final JButton runSelected;
-    private final JButton runFailed;
     private final JButton debug;
     private final JButton stop;
     private final JButton refresh;
     private final JButton collapse;
     private final JButton clearResults;
-    private final JToggleButton watch;
     private final Timer filterTimer = new Timer(120, event -> reload(false));
     private int spin;
     private final Timer spinTimer = new Timer(80, event -> {
@@ -95,15 +103,12 @@ public final class TestExplorerPanel extends JPanel {
     public TestExplorerPanel(UserActions actions) {
         super(new BorderLayout());
         this.actions = actions;
-        runAll = button(AppIcon.Kind.PLAY, "すべて実行 (F5)", actions::runAll);
-        runSelected = button(AppIcon.Kind.CURRENT, "選択を実行 (F6)", actions::runSelected);
-        runFailed = button(AppIcon.Kind.RERUN, "失敗を再実行 (F7)", actions::runFailed);
-        debug = button(AppIcon.Kind.DEBUG, "デバッグ (Ctrl+F5)", actions::debugSelected);
+        runSelected = button(AppIcon.Kind.PLAY, "選択を実行 (F6)", actions::runSelected);
+        debug = button(AppIcon.Kind.DEBUG, "選択をデバッグ (Ctrl+F5)", actions::debugSelected);
         stop = button(AppIcon.Kind.STOP, "停止 (Shift+F5)", actions::stop);
         refresh = button(AppIcon.Kind.REFRESH, "再検出 (Ctrl+Shift+R)", actions::refresh);
         collapse = button(AppIcon.Kind.COLLAPSE, "すべて折りたたむ", this::collapseAll);
         clearResults = button(AppIcon.Kind.CLEAR, "結果をクリア", actions::clearResults);
-        watch = new JToggleButton(new AppIcon(AppIcon.Kind.WATCH));
         filterTimer.setRepeats(false);
         spinTimer.setRepeats(true);
         buildToolbar();
@@ -151,10 +156,6 @@ public final class TestExplorerPanel extends JPanel {
 
     public JTextField filterField() {
         return filter;
-    }
-
-    public void setWatchSelected(boolean selected) {
-        watch.setSelected(selected);
     }
 
     public void setPhysicalNames(boolean physicalNames) {
@@ -272,7 +273,7 @@ public final class TestExplorerPanel extends JPanel {
             return;
         }
         Page want = pageFor(node);
-        if (page == Page.ORDER && node.isFactory()) {
+        if (page == Page.ORDER && (node.isFactory() || hasFactory(node))) {
             want = Page.ORDER;
         }
         if (want != null && want != page) {
@@ -348,15 +349,12 @@ public final class TestExplorerPanel extends JPanel {
     public void setBusy(boolean discovering, boolean running) {
         boolean idle = !discovering && !running;
         boolean hasProject = workspace != null;
-        runAll.setEnabled(idle && hasProject);
         runSelected.setEnabled(idle && hasProject);
-        runFailed.setEnabled(idle && hasProject);
         debug.setEnabled(idle && hasProject);
         refresh.setEnabled(idle && hasProject);
         clearResults.setEnabled(idle && hasProject);
         collapse.setEnabled(hasProject && !discovering);
         stop.setEnabled(running);
-        watch.setEnabled(hasProject && !discovering);
         filter.setEnabled(hasProject && !discovering);
         statusFilter.setEnabled(hasProject && !discovering);
         if (running) {
@@ -378,16 +376,12 @@ public final class TestExplorerPanel extends JPanel {
         project.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 12));
         title.add(project, BorderLayout.CENTER);
 
-        watch.setToolTipText("変更を監視して再実行");
-        Ui.toolbar(watch);
-        watch.addActionListener(event -> actions.watch(watch.isSelected()));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         buttons.setOpaque(false);
         buttons.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
-        for (JButton button : new JButton[]{runAll, runSelected, runFailed, debug, stop, refresh, clearResults, collapse}) {
+        for (JButton button : new JButton[]{runSelected, debug, stop, refresh, clearResults, collapse}) {
             buttons.add(button);
         }
-        buttons.add(watch);
 
         filter.putClientProperty("JTextField.placeholderText", "テストをフィルター");
         filter.getDocument().addDocumentListener(new DocumentListener() {
@@ -432,6 +426,15 @@ public final class TestExplorerPanel extends JPanel {
         target.setRowHeight(0);
         target.setCellRenderer(new Renderer());
         ToolTipManager.sharedInstance().registerComponent(target);
+        target.getInputMap(JTree.WHEN_FOCUSED).put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "copy-name");
+        target.getActionMap().put("copy-name", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                actions.copyName(selectedFrom(target));
+            }
+        });
         target.addTreeSelectionListener(event -> {
             if (applying) {
                 return;
@@ -463,6 +466,21 @@ public final class TestExplorerPanel extends JPanel {
             public void mouseReleased(MouseEvent event) {
                 if (event.isPopupTrigger()) {
                     showPopup(target, event);
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                if (event.getClickCount() != 2 || !SwingUtilities.isLeftMouseButton(event)) {
+                    return;
+                }
+                TreePath path = target.getPathForLocation(event.getX(), event.getY());
+                if (path == null) {
+                    return;
+                }
+                TestNode node = nodeOf(path.getLastPathComponent());
+                if (node != null) {
+                    actions.openSource(node);
                 }
             }
         });
@@ -520,13 +538,14 @@ public final class TestExplorerPanel extends JPanel {
         }
         String query = filter.getText().trim();
         TestStatus status = selectedStatus();
+        List<FactoryCases.Call> calls = factoryCalls(factory);
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(factory);
         for (CaseResult result : factory.cases()) {
-            String label = caseLabel(factory, result);
-            boolean nameOk = query.isEmpty() || contains(label, query.toLowerCase()) || matches(factory, query);
+            TestNode row = factoryRow(factory, result, calls);
+            boolean nameOk = query.isEmpty() || matches(row, query) || matches(factory, query);
             boolean statusOk = status == null || result.status() == status;
             if (nameOk && statusOk) {
-                root.add(new DefaultMutableTreeNode(TestNode.synthetic(factory, label, result)));
+                root.add(new DefaultMutableTreeNode(row));
             }
         }
         memberModel.setRoot(root);
@@ -538,6 +557,86 @@ public final class TestExplorerPanel extends JPanel {
         for (int i = 0; i < memberTree.getRowCount(); i++) {
             memberTree.expandRow(i);
         }
+    }
+
+    private List<FactoryCases.Call> factoryCalls(TestNode factory) {
+        if (factory.sourceFile() == null) {
+            return List.of();
+        }
+        try {
+            return FactoryCases.read(Files.readString(factory.sourceFile()), factory.line());
+        } catch (IOException ex) {
+            return List.of();
+        }
+    }
+
+    private TestNode factoryRow(TestNode factory, CaseResult result, List<FactoryCases.Call> calls) {
+        int index = dynamicIndex(factory, result.name());
+        FactoryCases.Call call = index >= 1 && index <= calls.size() ? calls.get(index - 1) : null;
+        TestNode target = call == null ? null : resolveTarget(factory, call);
+        if (call != null && call.displayName() != null && !call.displayName().isBlank()) {
+            String physical = target != null ? target.methodName() : call.displayName();
+            return TestNode.synthetic(factory, physical, call.displayName(), result);
+        }
+        if (target != null) {
+            return TestNode.synthetic(factory, target.methodName(), target.displayName(), result);
+        }
+        String label = caseLabel(factory, result);
+        return TestNode.synthetic(factory, label, label, result);
+    }
+
+    private TestNode resolveTarget(TestNode factory, FactoryCases.Call call) {
+        if (workspace == null || factory.moduleDir() == null || call.methodName() == null || call.typeName() == null) {
+            return null;
+        }
+        String module = factory.moduleDir().toAbsolutePath().normalize().toString();
+        for (String type : typeNames(factory, call.typeName())) {
+            TestNode found = workspace.findMethod(module + "|M|" + type + "#" + call.methodName());
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static List<String> typeNames(TestNode factory, String typeName) {
+        List<String> names = new ArrayList<>();
+        names.add(typeName);
+        names.add(typeName.replace('.', '$'));
+        int dot = typeName.indexOf('.');
+        if (dot > 0) {
+            String nested = typeName.substring(0, dot) + "$" + typeName.substring(dot + 1).replace('.', '$');
+            names.add(nested);
+        }
+        String packageName = packageName(factory.fqcn());
+        if (!packageName.isEmpty()) {
+            names.add(packageName + "." + typeName);
+            names.add(packageName + "." + typeName.replace('.', '$'));
+            if (dot > 0) {
+                String nested = typeName.substring(0, dot) + "$" + typeName.substring(dot + 1).replace('.', '$');
+                names.add(packageName + "." + nested);
+            }
+        }
+        return names;
+    }
+
+    private static String packageName(String fqcn) {
+        if (fqcn == null) {
+            return "";
+        }
+        int dot = fqcn.lastIndexOf('.');
+        return dot < 0 ? "" : fqcn.substring(0, dot);
+    }
+
+    private static int dynamicIndex(TestNode factory, String reportedName) {
+        if (reportedName == null || factory.methodName() == null) {
+            return -1;
+        }
+        Matcher matcher = Pattern.compile("^" + Pattern.quote(factory.methodName()) + "\\(\\)\\[(\\d+)\\].*").matcher(reportedName);
+        if (!matcher.matches()) {
+            return -1;
+        }
+        return Integer.parseInt(matcher.group(1));
     }
 
     private static String caseLabel(TestNode factory, CaseResult result) {
@@ -662,11 +761,9 @@ public final class TestExplorerPanel extends JPanel {
             return;
         }
         JPopupMenu menu = new JPopupMenu();
+        item(menu, "ソースを表示", () -> actions.openSource(node));
         item(menu, "実行", () -> actions.runNode(node, false));
         item(menu, "デバッグ", () -> actions.runNode(node, true));
-        if (node.sourceFile() != null) {
-            item(menu, "ソースを表示", () -> actions.openSource(node));
-        }
         if (node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) {
             item(menu, "セレクタをコピー", () -> actions.copySelector(node));
         }
@@ -1100,8 +1197,14 @@ public final class TestExplorerPanel extends JPanel {
     }
 
     private String treeLabel(JTree source, TestNode node) {
-        String label = physicalNames ? node.name() : node.displayName();
-        return label;
+        if (factoryExecution(source, node)) {
+            return node.displayName();
+        }
+        return physicalNames ? node.name() : node.displayName();
+    }
+
+    private boolean factoryExecution(JTree source, TestNode node) {
+        return source == memberTree && page == Page.ORDER && node.synthetic();
     }
 
     private TestStatus displayedStatus(JTree source, TestNode node) {
@@ -1131,9 +1234,10 @@ public final class TestExplorerPanel extends JPanel {
             case CLASS -> "クラス";
             case METHOD -> node.isFactory() ? "ファクトリー" : "テスト";
         };
-        StringBuilder text = new StringBuilder(kind).append('\n').append(physicalNames ? node.name() : node.displayName());
+        boolean physical = physicalNames && !(page == Page.ORDER && node.synthetic());
+        StringBuilder text = new StringBuilder(kind).append('\n').append(physical ? node.name() : node.displayName());
         if (!node.name().equals(node.displayName())) {
-            text.append('\n').append(physicalNames ? node.displayName() : node.name());
+            text.append('\n').append(physical ? node.displayName() : node.name());
         }
         if (node.kind() == TestKind.METHOD) {
             text.append('\n').append(node.selector());

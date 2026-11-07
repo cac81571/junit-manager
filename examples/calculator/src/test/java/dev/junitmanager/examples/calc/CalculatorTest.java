@@ -25,7 +25,7 @@ class CalculatorTest {
     @Order(1)
     @DisplayName("引き算")
     void subtracts() {
-        assertEquals(1, calculator.sub(2, 1), "2 - 1 は 1");
+        assertEquals(0, calculator.sub(2, 1), "2 - 1 は 1");
     }
 
     @Test

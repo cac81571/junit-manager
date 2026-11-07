@@ -1,10 +1,12 @@
 package dev.junitmanager.ui;
 
 import dev.junitmanager.model.CaseResult;
+import dev.junitmanager.model.DurationFormat;
 import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
+import dev.junitmanager.run.FactoryCases;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -24,8 +26,12 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class TestDetailPanel extends JPanel {
     private final UserActions actions;
@@ -46,6 +52,7 @@ public final class TestDetailPanel extends JPanel {
     private final JButton commandButton = new JButton("mvn test をコピー");
     private TestNode current;
     private Workspace workspace;
+    private final Map<CaseResult, String> caseLabels = new IdentityHashMap<>();
 
     public TestDetailPanel(UserActions actions) {
         super(new BorderLayout());
@@ -76,7 +83,7 @@ public final class TestDetailPanel extends JPanel {
                     JList<?> list, Object value, int index, boolean selected, boolean focus) {
                 super.getListCellRendererComponent(list, value, index, selected, focus);
                 if (value instanceof CaseResult result) {
-                    setText(result.summary());
+                    setText(caseSummary(result));
                 }
                 return this;
             }
@@ -190,6 +197,7 @@ public final class TestDetailPanel extends JPanel {
     public void show(TestNode node, Workspace workspace) {
         this.current = node;
         this.workspace = workspace;
+        caseLabels.clear();
         if (node == null) {
             title.setText(workspace == null ? "プロジェクトを開いてください" : "テストを選択してください");
             subtitle.setText(workspace == null
@@ -230,6 +238,7 @@ public final class TestDetailPanel extends JPanel {
         failureBox.setVisible(false);
         failures.clear();
         List<CaseResult> results = node.cases();
+        rememberFactoryLabels(node, results);
         cases.removeAllItems();
         if (results.size() > 1) {
             for (CaseResult result : results) {
@@ -289,6 +298,30 @@ public final class TestDetailPanel extends JPanel {
         boolean hasOut = systemOut != null && !systemOut.isBlank();
         output.setText(hasOut ? systemOut : "");
         outputBox.setVisible(hasOut);
+    }
+
+    private void rememberFactoryLabels(TestNode node, List<CaseResult> results) {
+        if (!node.isFactory() || node.sourceFile() == null) {
+            return;
+        }
+        List<FactoryCases.Call> calls;
+        try {
+            calls = FactoryCases.read(Files.readString(node.sourceFile()), node.line());
+        } catch (IOException ex) {
+            return;
+        }
+        for (CaseResult result : results) {
+            String display = FactoryCases.displayName(calls, node.methodName(), result.name());
+            if (display != null) {
+                caseLabels.put(result, display);
+            }
+        }
+    }
+
+    private String caseSummary(CaseResult result) {
+        String name = caseLabels.getOrDefault(result, result.name());
+        String time = result.durationMillis() < 0 ? "" : " · " + DurationFormat.of(result.durationMillis());
+        return name + " — " + result.status().label() + time;
     }
 
     private CaseResult selectedCase() {
