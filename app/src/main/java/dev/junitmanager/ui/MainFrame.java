@@ -481,12 +481,20 @@ public final class MainFrame extends JFrame implements UserActions {
     }
 
     private void run(RunPlans.Spec spec, boolean debug) {
+        run(spec, debug, true);
+    }
+
+    private void run(RunPlans.Spec spec, boolean debug, boolean askConfirm) {
         if (workspace == null || discovering || running) {
             return;
         }
         RunPlans.Plan plan = RunPlans.build(workspace, spec, debug);
         if (plan == null) {
             setPlainStatus(spec.kind() == RunPlans.Kind.FAILED ? "失敗したテストはありません" : "実行するテストがありません");
+            return;
+        }
+        if (askConfirm && !confirmRun(plan, debug)) {
+            setPlainStatus("実行をキャンセルしました");
             return;
         }
         lastSpec = spec;
@@ -560,7 +568,29 @@ public final class MainFrame extends JFrame implements UserActions {
             return;
         }
         RunPlans.Spec spec = lastSpec == null ? RunPlans.Spec.all() : lastSpec;
-        openProject(workspace.root(), () -> run(spec, false));
+        openProject(workspace.root(), () -> run(spec, false, false));
+    }
+
+    private boolean confirmRun(RunPlans.Plan plan, boolean debug) {
+        String title = debug ? "デバッグの確認" : "実行の確認";
+        StringBuilder message = new StringBuilder();
+        message.append(debug ? "次のテストをデバッグしますか？" : "次のテストを実行しますか？");
+        message.append("\n\n").append(plan.label());
+        List<String> properties = RunProperties.mavenArgs(settings.runProperties());
+        if (!properties.isEmpty()) {
+            message.append("\n\nシステムプロパティ:");
+            for (String property : properties) {
+                message.append('\n').append(property);
+            }
+        }
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                message.toString(),
+                title,
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+        return result == JOptionPane.OK_OPTION;
     }
 
     private void restartWatch() {
