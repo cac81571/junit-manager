@@ -187,6 +187,7 @@ public final class RunPlans {
         args.add("--fail-at-end");
         args.add("-Dstyle.color=always");
         args.add("-DtrimStackTrace=false");
+        args.add("-Dconfirm=dialog");
         if (!projects.isEmpty()) {
             args.add("-pl");
             args.add(String.join(",", projects));

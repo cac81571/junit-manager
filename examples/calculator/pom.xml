@@ -15,6 +15,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
+    <confirm></confirm>
   </properties>
   <dependencies>
     <dependency>
@@ -42,7 +43,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.2</version>
         <configuration>
-          <argLine>-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8</argLine>
+          <argLine>-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dconfirm=${confirm}</argLine>
         </configuration>
       </plugin>
     </plugins>

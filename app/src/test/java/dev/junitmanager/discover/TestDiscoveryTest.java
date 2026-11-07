@@ -80,6 +80,7 @@ class TestDiscoveryTest {
 
         RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(params), false);
         assertTrue(plan.mavenArgs().contains("-Dtest=" + params.fqcn() + "#params"), plan.mavenArgs().toString());
+        assertTrue(plan.mavenArgs().contains("-Dconfirm=dialog"), plan.mavenArgs().toString());
     }
 
     @Test
@@ -149,13 +150,16 @@ class TestDiscoveryTest {
         assertEquals("保留", method(workspace, "disabledOne").ignoreReason());
         TestNode factory = method(workspace, "orderedTests");
         List<FactoryCases.Call> calls = FactoryCases.read(Files.readString(factory.sourceFile()), factory.line());
-        assertEquals(List.of("CalculatorTest#adds", "CalculatorTest#div"), calls.stream().map(FactoryCases.Call::displayName).toList());
+        assertEquals(List.of("CalculatorTest#adds", "CalculatorTest#div", "CalculatorTest#subtracts"), calls.stream().map(FactoryCases.Call::displayName).toList());
         assertEquals("CalculatorTest", calls.get(0).typeName());
         assertEquals("adds", calls.get(0).methodName());
         assertEquals("CalculatorTest.Div", calls.get(1).typeName());
         assertEquals("divides", calls.get(1).methodName());
+        assertEquals("CalculatorTest", calls.get(2).typeName());
+        assertEquals("subtracts", calls.get(2).methodName());
         assertEquals("CalculatorTest#adds", FactoryCases.displayName(calls, "orderedTests", "orderedTests()[1]"));
         assertEquals("CalculatorTest#div", FactoryCases.displayName(calls, "orderedTests", "orderedTests()[2]"));
+        assertEquals("CalculatorTest#subtracts", FactoryCases.displayName(calls, "orderedTests", "orderedTests()[3]"));
     }
 
     @Test

@@ -36,7 +36,7 @@ public final class MavenRunner {
                     ProcessBuilder builder = new ProcessBuilder(launch.command());
                     builder.directory(launch.directory().toFile());
                     builder.redirectErrorStream(true);
-                    useUtf8(builder);
+                    configureJvm(builder);
                     proc = builder.start();
                     process = proc;
                     try (BufferedReader reader = new BufferedReader(
@@ -103,14 +103,18 @@ public final class MavenRunner {
         }
     }
 
-    private static void useUtf8(ProcessBuilder builder) {
-        String option = "-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8";
+    private static void configureJvm(ProcessBuilder builder) {
         String current = builder.environment().get("JAVA_TOOL_OPTIONS");
-        if (current == null || current.isBlank()) {
-            builder.environment().put("JAVA_TOOL_OPTIONS", option);
-        } else if (!current.contains("stderr.encoding")) {
-            builder.environment().put("JAVA_TOOL_OPTIONS", current + " " + option);
+        String next = current == null ? "" : current.trim();
+        if (!next.contains("stderr.encoding")) {
+            next = next.isBlank()
+                    ? "-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8"
+                    : next + " -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8";
         }
+        if (!next.contains("-Dconfirm=")) {
+            next = next.isBlank() ? "-Dconfirm=dialog" : next + " -Dconfirm=dialog";
+        }
+        builder.environment().put("JAVA_TOOL_OPTIONS", next);
     }
 
     private static void destroy(Process proc) {

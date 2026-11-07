@@ -409,13 +409,13 @@ public final class MainFrame extends JFrame implements UserActions {
         RunPlans.Spec spec = node == null ? RunPlans.Spec.all() : RunPlans.Spec.node(node);
         RunPlans.Plan plan = RunPlans.build(workspace, spec, false);
         if (plan == null) {
-            setPlainStatus("コピーできる mvn test コマンドがありません");
+            setPlainStatus("コピーできる実行コマンドがありません");
             return;
         }
-        String command = MavenCommands.clipboardCommand(plan.mavenArgs());
+        String command = MavenCommands.clipboardCommand(plan.workingDirectory(), plan.mavenArgs());
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(command), null);
-            setPlainStatus("mvn test コマンドをコピーしました");
+            setPlainStatus("実行コマンドをコピーしました");
         } catch (IllegalStateException ex) {
             setPlainStatus("クリップボードを使えませんでした");
         }

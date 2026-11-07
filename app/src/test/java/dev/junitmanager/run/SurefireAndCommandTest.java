@@ -62,16 +62,22 @@ class SurefireAndCommandTest {
     }
 
     @Test
-    void clipboardCommandIsOnlyTestSelector() {
-        String command = MavenCommands.clipboardCommand(List.of(
+    void clipboardCommandIncludesCdAndTestSelector() {
+        Path dir = temp.resolve("my module").toAbsolutePath().normalize();
+        String command = MavenCommands.clipboardCommand(dir, List.of(
                 "-B",
                 "-Dstyle.color=always",
                 "-DtrimStackTrace=false",
                 "-Dsurefire.failIfNoSpecifiedTests=false",
                 "-Dtest=com.example.Calc$Div#divides",
                 "test"));
-        assertEquals("mvn test -Dtest=com.example.Calc$Div#divides", command);
-        assertEquals("mvn test", MavenCommands.clipboardCommand(List.of("-B", "test")));
+        String mvn = "mvn test -Dtest=com.example.Calc$Div#divides -Dconfirm=console -DforkCount=0";
+        if (MavenCommands.isWindows()) {
+            assertEquals("cd /d \"" + dir + "\" && " + mvn, command);
+        } else {
+            assertEquals("cd '" + dir + "' && " + mvn, command);
+        }
+        assertEquals("mvn test -Dconfirm=console -DforkCount=0", MavenCommands.clipboardCommand(null, List.of("-B", "test")));
     }
 
     private static String report(String name, String tag, String message, String trace) {

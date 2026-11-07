@@ -26,17 +26,46 @@ public final class MavenCommands {
         return new Launch(command, directory, display);
     }
 
-    public static String clipboardCommand(List<String> mavenArgs) {
+    /**
+     * コマンドプロンプト／シェルに貼り付けて実行できるコマンドを返す。
+     * 作業ディレクトリへの {@code cd} と {@code mvn test} を連結する。
+     */
+    public static String clipboardCommand(Path workingDirectory, List<String> mavenArgs) {
+        String mvn = testInvocation(mavenArgs);
+        if (workingDirectory == null) {
+            return mvn;
+        }
+        String dir = workingDirectory.toAbsolutePath().normalize().toString();
+        if (isWindows()) {
+            return "cd /d " + quoteForCmd(dir) + " && " + mvn;
+        }
+        return "cd " + quoteForShell(dir) + " && " + mvn;
+    }
+
+    private static String testInvocation(List<String> mavenArgs) {
         String selector = null;
         for (String arg : mavenArgs) {
             if (arg.startsWith("-Dtest=")) {
                 selector = arg.substring("-Dtest=".length());
             }
         }
+        String confirm = " -Dconfirm=console -DforkCount=0";
         if (selector == null || selector.isBlank()) {
-            return "mvn test";
+            return "mvn test" + confirm;
         }
-        return "mvn test -Dtest=" + selector;
+        return "mvn test -Dtest=" + selector + confirm;
+    }
+
+    static String quoteForCmd(String value) {
+        if (value.indexOf(' ') < 0 && value.indexOf('\t') < 0 && value.indexOf('&') < 0
+                && value.indexOf('^') < 0 && value.indexOf('(') < 0 && value.indexOf(')') < 0) {
+            return value;
+        }
+        return "\"" + value.replace("\"", "") + "\"";
+    }
+
+    static String quoteForShell(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     static Path resolveWrapper(Path start, Path root) {

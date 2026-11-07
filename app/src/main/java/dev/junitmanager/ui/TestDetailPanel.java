@@ -49,7 +49,7 @@ public final class TestDetailPanel extends JPanel {
     private final JButton runButton = new JButton("実行");
     private final JButton sourceButton = new JButton("ソースを表示");
     private final JButton copyButton = new JButton("セレクタをコピー");
-    private final JButton commandButton = new JButton("mvn test をコピー");
+    private final JButton commandButton = new JButton("実行コマンドをコピー");
     private TestNode current;
     private Workspace workspace;
     private final Map<CaseResult, String> caseLabels = new IdentityHashMap<>();
