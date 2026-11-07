@@ -15,15 +15,21 @@ class TestParamsTest {
     }
 
     @Test
-    void getReturnsNullWhenUnset() {
+    void getReturnsNullWhenUnsetAndAllowsEmpty() {
         assertNull(TestParams.get("PARAM"));
         assertEquals("1000", TestParams.get("PARAM", "1000"));
+        System.setProperty("PARAM", "");
+        assertEquals("", TestParams.get("PARAM"));
+        assertEquals("", TestParams.get("PARAM", "1000"));
         System.setProperty("PARAM", "2000");
         assertEquals("2000", TestParams.get("PARAM"));
     }
 
     @Test
     void getIntUsesNullDefaultAndOverride() {
+        assertNull(TestParams.getInt("PARAM"));
+        assertEquals(1000, TestParams.getInt("PARAM", 1000));
+        System.setProperty("PARAM", "");
         assertNull(TestParams.getInt("PARAM"));
         assertEquals(1000, TestParams.getInt("PARAM", 1000));
         System.setProperty("PARAM", "2000");

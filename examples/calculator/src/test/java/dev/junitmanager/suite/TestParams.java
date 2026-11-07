@@ -2,7 +2,8 @@ package dev.junitmanager.suite;
 
 /**
  * 実行時パラメータ。優先順位はシステムプロパティ → 環境変数 → デフォルト。
- * 未設定のときは {@code null}（デフォルト未指定時）。
+ * 未定義のときだけ {@code null}（デフォルト未指定時）。空文字は有効な値として返す。
+ * 数値・真偽は空文字や空白のみのときはパースせずデフォルト（未指定時は {@code null}）。
  * <pre>
  *   if (TestParams.get("PARAM") == null) { ... }
  *   Integer n = TestParams.getInt("PARAM");
