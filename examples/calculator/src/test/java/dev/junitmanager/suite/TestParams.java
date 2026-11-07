@@ -2,11 +2,13 @@ package dev.junitmanager.suite;
 
 /**
  * 実行時パラメータ。優先順位はシステムプロパティ → 環境変数 → デフォルト。
+ * 未設定のときは {@code null}（デフォルト未指定時）。
  * <pre>
- *   TestParams.get("PARAM", "1000");
+ *   if (TestParams.get("PARAM") == null) { ... }
+ *   Integer n = TestParams.getInt("PARAM");
  *   TestParams.getInt("PARAM", 1000);
  * </pre>
- * Maven 例: {@code mvn test -DPARAM=2000}（pom で systemPropertyVariables に渡す）
+ * Maven 例: {@code mvn test -DPARAM=2000}
  * または {@code set PARAM=2000} してから {@code mvn test}
  */
 public final class TestParams {
@@ -14,8 +16,8 @@ public final class TestParams {
     }
 
     public static String get(String name) {
-        return get(name, "");
-    }    
+        return get(name, null);
+    }
 
     public static String get(String name, String defaultValue) {
         String property = System.getProperty(name);
@@ -29,35 +31,47 @@ public final class TestParams {
         return defaultValue;
     }
 
-    public static int getInt(String name, int defaultValue) {
+    public static Integer getInt(String name) {
+        return getInt(name, null);
+    }
+
+    public static Integer getInt(String name, Integer defaultValue) {
         String raw = get(name, null);
         if (raw == null || raw.isBlank()) {
             return defaultValue;
         }
         try {
-            return Integer.parseInt(raw.trim());
+            return Integer.valueOf(raw.trim());
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException(name + " は整数である必要があります: " + raw, ex);
         }
     }
 
-    public static long getLong(String name, long defaultValue) {
+    public static Long getLong(String name) {
+        return getLong(name, null);
+    }
+
+    public static Long getLong(String name, Long defaultValue) {
         String raw = get(name, null);
         if (raw == null || raw.isBlank()) {
             return defaultValue;
         }
         try {
-            return Long.parseLong(raw.trim());
+            return Long.valueOf(raw.trim());
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException(name + " は整数である必要があります: " + raw, ex);
         }
     }
 
-    public static boolean getBoolean(String name, boolean defaultValue) {
+    public static Boolean getBoolean(String name) {
+        return getBoolean(name, null);
+    }
+
+    public static Boolean getBoolean(String name, Boolean defaultValue) {
         String raw = get(name, null);
         if (raw == null || raw.isBlank()) {
             return defaultValue;
         }
-        return Boolean.parseBoolean(raw.trim());
+        return Boolean.valueOf(raw.trim());
     }
 }

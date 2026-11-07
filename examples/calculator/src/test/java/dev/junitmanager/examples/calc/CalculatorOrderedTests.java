@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.stream.Stream;
 
@@ -17,7 +17,7 @@ class CalculatorOrderedTests {
     @Test
     @DisplayName("パラメータチェック")
     void paramCheck() {
-        assertNotEquals("", TestParams.get("PARAM"), "PARAM を設定してください");
+        assertNotNull(TestParams.getInt("PARAM"), "PARAM を設定してください");
     }
 	
     @DisplayName("シナリオ1-1")
@@ -26,8 +26,8 @@ class CalculatorOrderedTests {
         RunConfirm.ask("""
                 事前条件:
                 - Calculator の基本演算を順に確認します
-                - PARAM=%s
-                """.formatted(TestParams.get("PARAM")));
+                - PARAM=%d
+                """.formatted(TestParams.getInt("PARAM")));
         return FailFast.of(
             DynamicTest.dynamicTest("CalculatorOrderedTests#paramCheck", () -> DynamicTestExecutor.execute(CalculatorOrderedTests::paramCheck)),
             DynamicTest.dynamicTest("CalculatorTest#subtracts", () -> DynamicTestExecutor.execute(CalculatorTest::subtracts)),
