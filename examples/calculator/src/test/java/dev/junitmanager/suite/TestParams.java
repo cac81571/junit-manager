@@ -13,6 +13,10 @@ public final class TestParams {
     private TestParams() {
     }
 
+    public static String get(String name) {
+        return get(name, "");
+    }    
+
     public static String get(String name, String defaultValue) {
         String property = System.getProperty(name);
         if (property != null) {

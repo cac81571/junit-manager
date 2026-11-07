@@ -7,3 +7,4 @@ target/
 .vscode/
 *.log
 .DS_Store
+examples/calculator/junit-manager-log.txt
