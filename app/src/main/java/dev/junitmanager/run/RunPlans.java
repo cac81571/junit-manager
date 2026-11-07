@@ -89,19 +89,6 @@ public final class RunPlans {
         if (node.synthetic() && node.parent() != null) {
             node = node.parent();
         }
-        TestNode runner = node.kind() == TestKind.CLASS ? node : node.ancestor(TestKind.CLASS);
-        if (runner != null && (node.kind() == TestKind.CLASS || node.kind() == TestKind.METHOD) && ExecutionOrder.isRunner(runner)) {
-            return fromMethods(
-                    workspace,
-                    runner.fqcn(),
-                    ExecutionOrder.scope(workspace, runner),
-                    runner.fqcn(),
-                    true,
-                    debug,
-                    false,
-                    null
-            );
-        }
         return switch (node.kind()) {
             case ROOT -> fromMethods(workspace, "すべてのテスト", workspace.realMethods(), null, true, debug, false, null);
             case MODULE -> fromMethods(workspace, node.displayName(), node.realMethods(), null, true, debug, false, null);

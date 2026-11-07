@@ -1,11 +1,11 @@
 package dev.junitmanager.discover;
 
+import dev.junitmanager.ExampleProject;
 import dev.junitmanager.model.Framework;
 import dev.junitmanager.model.TestKind;
 import dev.junitmanager.model.TestNode;
 import dev.junitmanager.model.TestStatus;
 import dev.junitmanager.model.Workspace;
-import dev.junitmanager.run.ExecutionOrder;
 import dev.junitmanager.run.ReportedTest;
 import dev.junitmanager.run.ResultApplier;
 import dev.junitmanager.run.RunPlans;
@@ -136,7 +136,7 @@ class TestDiscoveryTest {
 
     @Test
     void discoversExampleProject() throws Exception {
-        Path example = Path.of("examples/calculator").toAbsolutePath().normalize();
+        Path example = ExampleProject.calculator().toAbsolutePath().normalize();
         assertTrue(Files.isRegularFile(example.resolve("pom.xml")));
         Workspace workspace = TestDiscovery.discover(example);
         assertEquals(6, workspace.methodCount(), dump(workspace.tree()));
@@ -149,59 +149,22 @@ class TestDiscoveryTest {
     }
 
     @Test
-    void orderedSuiteRunsCsvTargetsFromTheGui() throws Exception {
-        Path example = Path.of("examples/calculator").toAbsolutePath().normalize();
-        Workspace workspace = TestDiscovery.discover(example);
-        TestNode runner = method(workspace, "orderedTests");
-        TestNode type = runner.ancestor(TestKind.CLASS);
-        RunPlans.Plan fromMethod = RunPlans.build(workspace, RunPlans.Spec.node(runner), false);
-        RunPlans.Plan fromClass = RunPlans.build(workspace, RunPlans.Spec.node(type), false);
-        String selector = "-Dtest=dev.junitmanager.suite.OrderedSuiteRunner";
-        assertEquals(selector, fromMethod.mavenArgs().stream().filter(arg -> arg.startsWith("-Dtest=")).findFirst().orElseThrow());
-        assertEquals(selector, fromClass.mavenArgs().stream().filter(arg -> arg.startsWith("-Dtest=")).findFirst().orElseThrow());
-        assertEquals(example, fromMethod.workingDirectory());
-        assertEquals(
-                List.of("adds", "divides", "multiplies", "disabledOne", "subtracts", "orderedTests"),
-                fromMethod.scope().stream().map(TestNode::methodName).toList()
-        );
-        assertEquals(
-                List.of("adds", "divides", "multiplies", "disabledOne", "subtracts"),
-                ExecutionOrder.targets(workspace, type).stream().map(TestNode::methodName).toList()
-        );
-
-        ResultApplier.markRunning(fromMethod.scope(), fromMethod.clearSynthetics(), fromMethod.suite(), type);
-        assertEquals(TestStatus.RUNNING, method(workspace, "adds").status());
-        assertEquals(TestStatus.RUNNING, method(workspace, "orderedTests").status());
-        assertEquals(TestStatus.NOT_RUN, method(workspace, "adds").ancestor(TestKind.PACKAGE).status());
-
-        ResultApplier.apply(workspace, fromMethod.scope(), List.of(
-                report(example, "orderedTests()[1]", TestStatus.PASSED, 4),
-                report(example, "orderedTests()[2]", TestStatus.PASSED, 1),
-                report(example, "orderedTests()[3]", TestStatus.PASSED, 2),
-                report(example, "orderedTests()[4]", TestStatus.SKIPPED, 0),
-                report(example, "orderedTests()[5]", TestStatus.PASSED, 3)
-        ), null);
-        assertEquals(TestStatus.PASSED, method(workspace, "adds").status());
-        assertEquals(TestStatus.PASSED, method(workspace, "divides").status());
-        assertEquals(TestStatus.PASSED, method(workspace, "multiplies").status());
-        assertEquals(TestStatus.SKIPPED, method(workspace, "disabledOne").status());
-        assertEquals(TestStatus.PASSED, method(workspace, "subtracts").status());
-        assertEquals(TestStatus.PASSED, method(workspace, "orderedTests").status());
-        assertEquals(10, method(workspace, "orderedTests").durationMillis());
-    }
-
-    private static ReportedTest report(Path module, String name, TestStatus status, long duration) {
-        return new ReportedTest(
-                module,
-                "dev.junitmanager.suite.OrderedSuiteRunner",
-                name,
-                status,
-                duration,
-                status == TestStatus.SKIPPED ? "保留" : null,
-                null,
-                null,
-                null
-        );
+    void marksTestFactoryMethods() throws Exception {
+        writePom(temp, "demo", null);
+        write(temp.resolve("src/test/java/com/example/Made.java"), """
+                package com.example;
+                import org.junit.jupiter.api.DynamicTest;
+                import org.junit.jupiter.api.Test;
+                import org.junit.jupiter.api.TestFactory;
+                import java.util.stream.Stream;
+                class Made {
+                    @Test void alpha() {}
+                    @TestFactory Stream<DynamicTest> made() { return Stream.empty(); }
+                }
+                """);
+        Workspace workspace = TestDiscovery.discover(temp);
+        assertTrue(method(workspace, "made").isFactory());
+        assertFalse(method(workspace, "alpha").isFactory());
     }
 
     @Test
@@ -434,7 +397,7 @@ class TestDiscoveryTest {
 
     @Test
     void runningAClassMarksEveryMethodRunning() throws Exception {
-        Workspace workspace = TestDiscovery.discover(Path.of("examples/calculator"));
+        Workspace workspace = TestDiscovery.discover(ExampleProject.calculator());
         TestNode type = null;
         for (TestNode method : workspace.realMethods()) {
             if ("subtracts".equals(method.methodName()) && method.ancestor(TestKind.SUITE) == null) {
@@ -457,7 +420,7 @@ class TestDiscoveryTest {
 
     @Test
     void runningASuiteMarksThatSuiteRunning() throws Exception {
-        Workspace workspace = TestDiscovery.discover(Path.of("examples/calculator"));
+        Workspace workspace = TestDiscovery.discover(ExampleProject.calculator());
         TestNode suite = suite(workspace, "CalculatorMethods");
         RunPlans.Plan plan = RunPlans.build(workspace, RunPlans.Spec.node(suite), false);
         ResultApplier.markRunning(plan.scope(), plan.clearSynthetics(), plan.suite(), suite);

@@ -56,7 +56,6 @@ public final class ResultApplier {
     }
 
     public static boolean apply(Workspace workspace, List<TestNode> scope, List<ReportedTest> reports, TestNode suite) {
-        reports = ExecutionOrder.retarget(reports);
         Set<TestNode> scopeSet = new HashSet<>(scope);
         Map<TestNode, List<ReportedTest>> matched = new LinkedHashMap<>();
         List<ReportedTest> unmatched = new ArrayList<>();

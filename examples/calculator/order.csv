@@ -1,6 +1,0 @@
-// TestExecutionOrder.METHODS の順。OrderedSuiteRunner が1行ずつ実行する
-dev.junitmanager.examples.calc.CalculatorTest#adds
-dev.junitmanager.examples.calc.CalculatorTest$Div#divides
-dev.junitmanager.examples.calc.CalculatorTest#multiplies
-dev.junitmanager.examples.calc.CalculatorTest#disabledOne
-dev.junitmanager.examples.calc.CalculatorTest#subtracts

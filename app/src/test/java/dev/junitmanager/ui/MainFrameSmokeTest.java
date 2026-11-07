@@ -1,5 +1,6 @@
 package dev.junitmanager.ui;
 
+import dev.junitmanager.ExampleProject;
 import dev.junitmanager.discover.TestDiscovery;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -23,8 +24,8 @@ class MainFrameSmokeTest {
         System.setProperty("junitmanager.settings", settings.toString());
         System.setProperty("junitmanager.noexit", "true");
         try {
-            Path example = Path.of("examples/calculator").toAbsolutePath().normalize();
-            assertEquals(6, TestDiscovery.discover(example).methodCount());
+            Path example = ExampleProject.calculator();
+            assertEquals(5, TestDiscovery.discover(example).methodCount());
             CountDownLatch latch = new CountDownLatch(1);
             AtomicInteger shown = new AtomicInteger();
             SwingUtilities.invokeAndWait(() -> {
@@ -36,7 +37,7 @@ class MainFrameSmokeTest {
                 });
             });
             assertTrue(latch.await(20, TimeUnit.SECONDS));
-            assertEquals(6, shown.get());
+            assertEquals(5, shown.get());
         } finally {
             System.clearProperty("junitmanager.settings");
         }

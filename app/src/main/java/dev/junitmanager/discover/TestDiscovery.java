@@ -202,6 +202,7 @@ public final class TestDiscovery {
             if (method.order != null) {
                 methodNode.setOrder(method.order);
             }
+            methodNode.setFactory(method.factory);
             classNode.addChild(methodNode);
         }
         for (JavaTests.TypeUnit nested : type.nested) {
@@ -446,6 +447,7 @@ public final class TestDiscovery {
                 false
         );
         copy.setOrder(node.order());
+        copy.setFactory(node.isFactory());
         for (TestNode child : node.children()) {
             if (!child.synthetic()) {
                 copy.addChild(copyTree(child));

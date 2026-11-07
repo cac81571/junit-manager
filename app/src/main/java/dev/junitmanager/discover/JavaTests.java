@@ -73,6 +73,7 @@ final class JavaTests {
         String ignoreReason;
         int line;
         Integer order;
+        boolean factory;
         Framework framework = Framework.UNKNOWN;
     }
 
@@ -296,6 +297,7 @@ final class JavaTests {
             }
             method.framework = frameworkOf(annotations);
             method.order = orderOf(annotations);
+            method.factory = isTestFactory(annotations);
             owner.methods.add(method);
         }
 
@@ -779,6 +781,16 @@ final class JavaTests {
                 index = close < 0 ? args.length() : close;
             }
             return values;
+        }
+
+        private boolean isTestFactory(List<Ann> annotations) {
+            for (Ann ann : annotations) {
+                String resolved = imports.resolve(ann.name);
+                if (resolved.equals("org.junit.jupiter.api.TestFactory") || resolved.equals("TestFactory")) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private boolean isJUnitTest(List<Ann> annotations) {

@@ -22,6 +22,7 @@ public final class TestNode {
     private final String ignoreReason;
     private final Framework framework;
     private final boolean synthetic;
+    private boolean factory;
     private final List<TestNode> children = new ArrayList<>();
     private final List<CaseResult> cases = new ArrayList<>();
     private TestNode parent;
@@ -139,6 +140,14 @@ public final class TestNode {
 
     public boolean synthetic() {
         return synthetic;
+    }
+
+    public boolean isFactory() {
+        return factory;
+    }
+
+    public void setFactory(boolean factory) {
+        this.factory = factory;
     }
 
     public TestNode parent() {

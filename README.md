@@ -9,21 +9,23 @@ Maven プロジェクトの JUnit を、VS Code のテストタブのように�
 
 ## 起動
 
+リポジトリのルートは集約用の `pom` です。本体は `app`、サンプルは `examples/calculator` です。
+
 ```bash
-mvn exec:java
+mvn -pl app exec:java
 ```
 
 引数にプロジェクトのフォルダを渡すと、起動直後に開きます。
 
 ```bash
-mvn exec:java -Dexec.args="examples/calculator"
+mvn -pl app exec:java -Dexec.args="examples/calculator"
 ```
 
 配布用の JAR を作る場合:
 
 ```bash
 mvn -q package
-java -jar target/junit-manager-1.0.0.jar
+java -jar app/target/junit-manager-1.0.0.jar
 ```
 
 ## 使い方
