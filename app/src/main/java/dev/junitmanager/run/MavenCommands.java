@@ -11,7 +11,7 @@ public final class MavenCommands {
     private MavenCommands() {
     }
 
-    public record Launch(List<String> command, Path directory, String display) {
+    public record Launch(List<String> command, Path directory, String display, List<String> mavenArgs) {
     }
 
     public static Launch launch(Path projectRoot, Path workingDirectory, List<String> mavenArgs) {
@@ -20,10 +20,11 @@ public final class MavenCommands {
         boolean windows = isWindows();
         String executable = wrapper == null ? (windows ? "mvn.cmd" : "mvn") : wrapper.toString();
         String shownName = wrapper == null ? (windows ? "mvn" : "mvn") : wrapper.getFileName().toString();
-        List<String> command = windows ? windowsCommand(executable, mavenArgs) : unixCommand(executable, mavenArgs);
+        List<String> args = List.copyOf(mavenArgs);
+        List<String> command = windows ? windowsCommand(executable, args) : unixCommand(executable, args);
         String folder = directory.getFileName() == null ? directory.toString() : directory.getFileName().toString();
-        String display = folder + "> " + shownName + " " + String.join(" ", mavenArgs);
-        return new Launch(command, directory, display);
+        String display = folder + "> " + shownName + " " + String.join(" ", args);
+        return new Launch(command, directory, display, args);
     }
 
     public enum ClipboardShell {
@@ -64,12 +65,15 @@ public final class MavenCommands {
 
     private static String testInvocation(List<String> mavenArgs, boolean powerShell) {
         String selector = null;
+        StringBuilder extras = new StringBuilder();
         for (String arg : mavenArgs) {
             if (arg.startsWith("-Dtest=")) {
                 selector = arg.substring("-Dtest=".length());
+            } else if (arg.startsWith("-D") && !RunProperties.isInternal(arg)) {
+                extras.append(' ').append(powerShell ? quotePowerShellArg(arg) : arg);
             }
         }
-        String extras = " -Dconfirm=console -DforkCount=0";
+        extras.append(" -Dconfirm=console -DforkCount=0");
         if (selector == null || selector.isBlank()) {
             return "mvn test" + extras;
         }
@@ -77,6 +81,13 @@ public final class MavenCommands {
             return "mvn test '-Dtest=" + selector.replace("'", "''") + "'" + extras;
         }
         return "mvn test -Dtest=" + selector + extras;
+    }
+
+    private static String quotePowerShellArg(String arg) {
+        if (arg.indexOf(' ') < 0 && arg.indexOf('\'') < 0) {
+            return arg;
+        }
+        return "'" + arg.replace("'", "''") + "'";
     }
 
     static String quoteForCmd(String value) {

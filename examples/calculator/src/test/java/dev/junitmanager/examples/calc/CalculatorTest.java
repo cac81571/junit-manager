@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Order;
+import dev.junitmanager.suite.TestParams;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -25,7 +26,7 @@ class CalculatorTest {
     @Order(1)
     @DisplayName("引き算")
     void subtracts() {
-        assertEquals(0, calculator.sub(2, 1), "2 - 1 は 1");
+        assertEquals(TestParams.getInt("PARAM", 0), calculator.sub(2, 1), "2 - 1 は 1");
     }
 
     @Test

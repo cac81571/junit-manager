@@ -69,11 +69,12 @@ class SurefireAndCommandTest {
                 "-Dstyle.color=always",
                 "-DtrimStackTrace=false",
                 "-Dsurefire.failIfNoSpecifiedTests=false",
+                "-DPARAM=1",
                 "-Dtest=com.example.Calc$Div#divides",
                 "test");
         String cmd = MavenCommands.clipboardCommand(dir, args, MavenCommands.ClipboardShell.CMD);
         String ps = MavenCommands.clipboardCommand(dir, args, MavenCommands.ClipboardShell.POWERSHELL);
-        String extras = " -Dconfirm=console -DforkCount=0";
+        String extras = " -DPARAM=1 -Dconfirm=console -DforkCount=0";
         String mvnCmd = "mvn test -Dtest=com.example.Calc$Div#divides" + extras;
         String mvnPs = "mvn test '-Dtest=com.example.Calc$Div#divides'" + extras;
         if (MavenCommands.isWindows()) {
@@ -82,7 +83,10 @@ class SurefireAndCommandTest {
             assertEquals("cd '" + dir + "' && " + mvnCmd, cmd);
         }
         assertEquals("Set-Location -LiteralPath '" + dir + "'; " + mvnPs, ps);
-        assertEquals("mvn test" + extras, MavenCommands.clipboardCommand(null, List.of("-B", "test"), MavenCommands.ClipboardShell.CMD));
+        assertEquals(
+                "mvn test -Dconfirm=console -DforkCount=0",
+                MavenCommands.clipboardCommand(null, List.of("-B", "test"), MavenCommands.ClipboardShell.CMD));
+        assertEquals(List.of("-DPARAM=1", "-DFOO=bar"), RunProperties.mavenArgs("PARAM=1\n# comment\nFOO=bar\nconfirm=dialog"));
     }
 
     private static String report(String name, String tag, String message, String trace) {

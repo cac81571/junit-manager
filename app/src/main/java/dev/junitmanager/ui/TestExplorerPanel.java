@@ -25,6 +25,7 @@ import javax.swing.JTree;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.ToolTipManager;
+import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -81,7 +82,9 @@ public final class TestExplorerPanel extends JPanel {
     private final JButton debug;
     private final JButton stop;
     private final JButton refresh;
+    private final JButton expand;
     private final JButton collapse;
+    private final JLabel heading = new JLabel("テストエクスプローラー");
     private final JButton clearResults;
     private final Timer filterTimer = new Timer(120, event -> reload(false));
     private int spin;
@@ -107,6 +110,7 @@ public final class TestExplorerPanel extends JPanel {
         debug = button(AppIcon.Kind.DEBUG, "選択をデバッグ (Ctrl+F5)", actions::debugSelected);
         stop = button(AppIcon.Kind.STOP, "停止 (Shift+F5)", actions::stop);
         refresh = button(AppIcon.Kind.REFRESH, "再検出 (Ctrl+Shift+R)", actions::refresh);
+        expand = button(AppIcon.Kind.EXPAND, "すべて展開", this::expandAll);
         collapse = button(AppIcon.Kind.COLLAPSE, "すべて折りたたむ", this::collapseAll);
         clearResults = button(AppIcon.Kind.CLEAR, "結果をクリア", actions::clearResults);
         filterTimer.setRepeats(false);
@@ -166,6 +170,13 @@ public final class TestExplorerPanel extends JPanel {
     public void applyTheme() {
         SwingUtilities.updateComponentTreeUI(suiteSplit);
         suiteSplit.setBorder(null);
+        Font base = UIManager.getFont("Label.font");
+        if (base != null) {
+            heading.setFont(base.deriveFont(Font.BOLD));
+            memberTitle.setFont(base.deriveFont(Font.BOLD));
+            empty.setFont(base.deriveFont(Font.PLAIN, base.getSize2D() + 1f));
+        }
+        remeasureRows();
     }
 
     private void remeasureRows() {
@@ -353,6 +364,7 @@ public final class TestExplorerPanel extends JPanel {
         debug.setEnabled(idle && hasProject);
         refresh.setEnabled(idle && hasProject);
         clearResults.setEnabled(idle && hasProject);
+        expand.setEnabled(hasProject && !discovering);
         collapse.setEnabled(hasProject && !discovering);
         stop.setEnabled(running);
         filter.setEnabled(hasProject && !discovering);
@@ -368,7 +380,6 @@ public final class TestExplorerPanel extends JPanel {
 
     private void buildToolbar() {
         JPanel title = new JPanel(new BorderLayout());
-        JLabel heading = new JLabel("テストエクスプローラー");
         heading.setFont(heading.getFont().deriveFont(Font.BOLD));
         heading.setBorder(BorderFactory.createEmptyBorder(8, 12, 0, 12));
         title.setOpaque(false);
@@ -379,7 +390,7 @@ public final class TestExplorerPanel extends JPanel {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         buttons.setOpaque(false);
         buttons.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
-        for (JButton button : new JButton[]{runSelected, debug, stop, refresh, clearResults, collapse}) {
+        for (JButton button : new JButton[]{runSelected, debug, stop, refresh, clearResults, expand, collapse}) {
             buttons.add(button);
         }
 
@@ -963,6 +974,19 @@ public final class TestExplorerPanel extends JPanel {
                     || (page == Page.ORDER && node.kind() == TestKind.CLASS))) {
                 tree.expandRow(i);
             }
+        }
+    }
+
+    private void expandAll() {
+        expandRows(tree);
+        expandRows(memberTree);
+    }
+
+    private static void expandRows(JTree target) {
+        int row = 0;
+        while (row < target.getRowCount()) {
+            target.expandRow(row);
+            row++;
         }
     }
 

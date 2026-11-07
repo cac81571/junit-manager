@@ -7,9 +7,14 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 /**
  * 実行前確認。デフォルトは非対話（確認なし）。
  * {@code -Dconfirm=console} または {@code -Dconfirm=dialog} で有効化。
+ * <p>
+ * console は {@code -DforkCount=0} 前提で Maven ごと終了する。
+ * dialog は Surefire の別プロセスで動くため、中断はスキップ扱いにする。
  */
 public final class RunConfirm {
     private RunConfirm() {
@@ -43,7 +48,11 @@ public final class RunConfirm {
                 answer = null;
             }
         }
-        proceed(answer != null && answer.trim().equalsIgnoreCase("y"));
+        if (answer != null && answer.trim().equalsIgnoreCase("y")) {
+            return;
+        }
+        System.out.println("ユーザが中断しました");
+        System.exit(1);
     }
 
     private static void dialog(String preconditions) {
@@ -53,14 +62,10 @@ public final class RunConfirm {
                 "実行確認",
                 JOptionPane.OK_CANCEL_OPTION
         );
-        proceed(result == JOptionPane.OK_OPTION);
-    }
-
-    private static void proceed(boolean accepted) {
-        if (accepted) {
+        if (result == JOptionPane.OK_OPTION) {
             return;
         }
         System.out.println("ユーザが中断しました");
-        System.exit(1);
+        assumeTrue(false, "ユーザが中断しました");
     }
 }

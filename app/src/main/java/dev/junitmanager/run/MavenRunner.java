@@ -36,7 +36,7 @@ public final class MavenRunner {
                     ProcessBuilder builder = new ProcessBuilder(launch.command());
                     builder.directory(launch.directory().toFile());
                     builder.redirectErrorStream(true);
-                    configureJvm(builder);
+                    configureJvm(builder, launch.mavenArgs());
                     proc = builder.start();
                     process = proc;
                     try (BufferedReader reader = new BufferedReader(
@@ -103,7 +103,7 @@ public final class MavenRunner {
         }
     }
 
-    private static void configureJvm(ProcessBuilder builder) {
+    private static void configureJvm(ProcessBuilder builder, List<String> mavenArgs) {
         String current = builder.environment().get("JAVA_TOOL_OPTIONS");
         String next = current == null ? "" : current.trim();
         if (!next.contains("stderr.encoding")) {
@@ -113,6 +113,13 @@ public final class MavenRunner {
         }
         if (!next.contains("-Dconfirm=")) {
             next = next.isBlank() ? "-Dconfirm=dialog" : next + " -Dconfirm=dialog";
+        }
+        if (mavenArgs != null) {
+            for (String arg : mavenArgs) {
+                if (arg.startsWith("-D") && !RunProperties.isInternal(arg) && !next.contains(arg)) {
+                    next = next.isBlank() ? arg : next + " " + arg;
+                }
+            }
         }
         builder.environment().put("JAVA_TOOL_OPTIONS", next);
     }

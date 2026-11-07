@@ -12,7 +12,7 @@ import java.awt.RenderingHints;
 
 public final class AppIcon extends FlatAbstractIcon {
     public enum Kind {
-        PLAY, CURRENT, RERUN, STOP, REFRESH, DEBUG, COLLAPSE, WATCH, CLEAR,
+        PLAY, CURRENT, RERUN, STOP, REFRESH, DEBUG, EXPAND, COLLAPSE, WATCH, CLEAR,
         PASSED, FAILED, SKIPPED, NOT_RUN, RUNNING
     }
 
@@ -51,6 +51,7 @@ public final class AppIcon extends FlatAbstractIcon {
             }
             case REFRESH -> rerun(g, foreground());
             case DEBUG -> debug(g, foreground());
+            case EXPAND -> expand(g, foreground());
             case COLLAPSE -> collapse(g, foreground());
             case WATCH -> watch(g, foreground());
             case CLEAR -> clear(g, foreground());
@@ -106,6 +107,13 @@ public final class AppIcon extends FlatAbstractIcon {
         g.drawLine(11, 4, 13, 2);
         g.drawLine(4, 8, 2, 10);
         g.drawLine(12, 8, 14, 10);
+    }
+
+    private static void expand(Graphics2D g, Color color) {
+        g.setColor(color);
+        g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawPolyline(new int[]{3, 8, 13}, new int[]{7, 3, 7}, 3);
+        g.drawPolyline(new int[]{3, 8, 13}, new int[]{11, 7, 11}, 3);
     }
 
     private static void collapse(Graphics2D g, Color color) {

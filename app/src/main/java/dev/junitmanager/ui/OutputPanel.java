@@ -39,24 +39,28 @@ public final class OutputPanel extends JPanel {
     private final StringBuilder pending = new StringBuilder();
     private final AnsiText.State ansi = new AnsiText.State();
 
-    public OutputPanel(Runnable onClear) {
+    public OutputPanel(Runnable onClear, Runnable onSave) {
         super(new BorderLayout());
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(Ui.bottomLine());
         JLabel title = new JLabel("出力");
         title.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
         header.add(title, BorderLayout.WEST);
+        JButton save = new JButton("保存");
+        save.setToolTipText("出力をファイルに保存");
+        save.addActionListener(event -> onSave.run());
         JButton clear = new JButton("クリア");
         clear.addActionListener(event -> onClear.run());
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         actions.setOpaque(false);
+        actions.add(save);
         actions.add(clear);
         header.add(actions, BorderLayout.EAST);
         header.setOpaque(false);
         add(header, BorderLayout.NORTH);
 
         area.setEditable(false);
-        area.setFont(Ui.mono());
+        area.setFont(Ui.mono(1));
         area.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
         scroll = new JScrollPane(area);
         scroll.setBorder(null);
@@ -65,7 +69,7 @@ public final class OutputPanel extends JPanel {
     }
 
     public void applyTheme() {
-        area.setFont(Ui.mono());
+        area.setFont(Ui.mono(1));
         Color background = UIManager.getColor("TextArea.background");
         Color foreground = UIManager.getColor("TextArea.foreground");
         if (background != null) {
@@ -96,6 +100,16 @@ public final class OutputPanel extends JPanel {
         if (follow) {
             area.setCaretPosition(area.getDocument().getLength());
         }
+    }
+
+    public String text() {
+        String shown;
+        try {
+            shown = area.getDocument().getText(0, area.getDocument().getLength());
+        } catch (BadLocationException ex) {
+            shown = "";
+        }
+        return shown + pending;
     }
 
     public void clear() {

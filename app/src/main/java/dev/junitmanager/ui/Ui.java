@@ -14,8 +14,12 @@ final class Ui {
     }
 
     static Font mono() {
+        return mono(0);
+    }
+
+    static Font mono(int larger) {
         Font base = UIManager.getFont("defaultFont");
-        int size = base == null ? 13 : base.getSize();
+        int size = (base == null ? 13 : base.getSize()) + larger;
         return new Font(Font.MONOSPACED, Font.PLAIN, size);
     }
 

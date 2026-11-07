@@ -9,6 +9,7 @@ import dev.junitmanager.run.MavenCommands;
 import dev.junitmanager.run.MavenRunner;
 import dev.junitmanager.run.ResultApplier;
 import dev.junitmanager.run.RunPlans;
+import dev.junitmanager.run.RunProperties;
 import dev.junitmanager.run.SourceWatcher;
 import dev.junitmanager.settings.UserSettings;
 
@@ -52,6 +53,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class MainFrame extends JFrame implements UserActions {
@@ -60,7 +62,8 @@ public final class MainFrame extends JFrame implements UserActions {
     private final SourceWatcher watcher = new SourceWatcher();
     private final TestExplorerPanel explorer = new TestExplorerPanel(this);
     private final TestDetailPanel detail = new TestDetailPanel(this);
-    private final OutputPanel output = new OutputPanel(this::clearOutput);
+    private final OutputPanel output = new OutputPanel(this::clearOutput, this::saveOutput);
+    private final RunPropertiesPanel runProperties = new RunPropertiesPanel("", this::saveRunProperties);
     private final JSplitPane vertical;
     private final JSplitPane split;
     private final JLabel status = new JLabel("Maven プロジェクトを開いてください");
@@ -80,7 +83,12 @@ public final class MainFrame extends JFrame implements UserActions {
         ThemeManager.install(settings.dark());
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setMinimumSize(new Dimension(860, 560));
-        vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detail, output);
+        runProperties.setText(settings.runProperties());
+        JPanel outputStack = new JPanel(new BorderLayout());
+        outputStack.setOpaque(false);
+        outputStack.add(runProperties, BorderLayout.NORTH);
+        outputStack.add(output, BorderLayout.CENTER);
+        vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detail, outputStack);
         vertical.setResizeWeight(0.62);
         vertical.setContinuousLayout(true);
         vertical.setBorder(null);
@@ -113,10 +121,7 @@ public final class MainFrame extends JFrame implements UserActions {
         });
         explorer.setPhysicalNames(settings.physicalNames());
         setIconImages(windowIcons());
-        SwingUtilities.updateComponentTreeUI(this);
-        explorer.applyTheme();
-        sourceDialog.applyTheme();
-        output.applyTheme();
+        applyLook(null);
         updateActions();
     }
 
@@ -421,7 +426,7 @@ public final class MainFrame extends JFrame implements UserActions {
             setPlainStatus("コピーできる実行コマンドがありません");
             return;
         }
-        String command = MavenCommands.clipboardCommand(plan.workingDirectory(), plan.mavenArgs(), shell);
+        String command = MavenCommands.clipboardCommand(plan.workingDirectory(), withRunProperties(plan.mavenArgs()), shell);
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(command), null);
             setPlainStatus(okStatus);
@@ -498,10 +503,22 @@ public final class MainFrame extends JFrame implements UserActions {
         if (plan.broadened()) {
             output.append("セレクタが長いため、対象を広げて実行します。\n");
         }
-        MavenCommands.Launch launch = MavenCommands.launch(workspace.root(), plan.workingDirectory(), plan.mavenArgs());
+        MavenCommands.Launch launch = MavenCommands.launch(workspace.root(), plan.workingDirectory(), withRunProperties(plan.mavenArgs()));
         output.append(launch.display() + "\n");
         setPlainStatus("実行中 · " + plan.label());
         runner.start(launch, plan.reportModules(), output::append, (result, error) -> finishRun(plan, result, error));
+    }
+
+    private List<String> withRunProperties(List<String> mavenArgs) {
+        List<String> args = new ArrayList<>(mavenArgs.size() + 4);
+        List<String> properties = RunProperties.mavenArgs(settings.runProperties());
+        for (String arg : mavenArgs) {
+            if (arg.equals("test")) {
+                args.addAll(properties);
+            }
+            args.add(arg);
+        }
+        return args;
     }
 
     private void finishRun(RunPlans.Plan plan, MavenRunner.RunResult result, Throwable error) {
@@ -611,6 +628,32 @@ public final class MainFrame extends JFrame implements UserActions {
         output.clear();
     }
 
+    private void saveOutput() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("出力を保存");
+        chooser.setSelectedFile(defaultLogFile().toFile());
+        chooser.setFileFilter(new FileNameExtensionFilter("テキスト (*.txt, *.log)", "txt", "log"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path file = chooser.getSelectedFile().toPath();
+        String name = file.getFileName() == null ? "" : file.getFileName().toString();
+        if (!name.contains(".")) {
+            file = file.resolveSibling(name + ".txt");
+        }
+        try {
+            Files.writeString(file, output.text());
+            setPlainStatus("出力を保存しました: " + file);
+        } catch (IOException ex) {
+            setPlainStatus("出力を保存できません: " + rootMessage(ex));
+        }
+    }
+
+    private Path defaultLogFile() {
+        Path dir = workspace == null ? Path.of(System.getProperty("user.home", ".")) : workspace.root();
+        return dir.resolve("junit-manager-log.txt");
+    }
+
     private JMenuBar menuBar() {
         JMenuBar bar = new JMenuBar();
         JMenu file = new JMenu("ファイル");
@@ -625,6 +668,7 @@ public final class MainFrame extends JFrame implements UserActions {
         run.add(item("選択をデバッグ", KeyStroke.getKeyStroke(KeyEvent.VK_F5, shortcut()), this::debugSelected));
         run.add(item("停止", KeyStroke.getKeyStroke(KeyEvent.VK_F5, KeyEvent.SHIFT_DOWN_MASK), this::stop));
         run.addSeparator();
+        run.add(item("システムプロパティにフォーカス", null, runProperties::focusEditor));
         run.add(item("結果をクリア", null, this::clearResults));
         JMenu view = new JMenu("表示");
         view.add(item("再検出", KeyStroke.getKeyStroke(KeyEvent.VK_R, shortcut() | KeyEvent.SHIFT_DOWN_MASK), this::refresh));
@@ -633,15 +677,7 @@ public final class MainFrame extends JFrame implements UserActions {
         theme.addActionListener(event -> {
             settings.setDark(!settings.dark());
             settings.save();
-            ThemeManager.install(settings.dark());
-            SwingUtilities.updateComponentTreeUI(this);
-            explorer.applyTheme();
-            sourceDialog.applyTheme();
-            output.applyTheme();
-            split.setBorder(null);
-            vertical.setBorder(null);
-            theme.setText(settings.dark() ? "ライトテーマ" : "ダークテーマ");
-            showSummary();
+            applyLook(theme);
         });
         view.add(theme);
         view.addSeparator();
@@ -677,6 +713,7 @@ public final class MainFrame extends JFrame implements UserActions {
             external.setSelected(enabled);
             settings.save();
         }));
+        view.add(item("出力を保存...", null, this::saveOutput));
         view.add(item("出力をクリア", null, this::clearOutput));
         JMenu help = new JMenu("ヘルプ");
         help.add(item("使い方", null, this::showHelp));
@@ -688,10 +725,31 @@ public final class MainFrame extends JFrame implements UserActions {
         return bar;
     }
 
+    private void applyLook(JMenuItem theme) {
+        ThemeManager.install(settings.dark());
+        SwingUtilities.updateComponentTreeUI(this);
+        explorer.applyTheme();
+        detail.applyTheme();
+        sourceDialog.applyTheme();
+        output.applyTheme();
+        runProperties.applyTheme();
+        split.setBorder(null);
+        vertical.setBorder(null);
+        if (theme != null) {
+            theme.setText(settings.dark() ? "ライトテーマ" : "ダークテーマ");
+        }
+        showSummary();
+    }
+
     private void applyTreeLabels(boolean physical) {
         settings.setPhysicalNames(physical);
         settings.save();
         explorer.setPhysicalNames(physical);
+    }
+
+    private void saveRunProperties(String text) {
+        settings.setRunProperties(text);
+        settings.save();
     }
 
     private boolean editEditorCommand() {

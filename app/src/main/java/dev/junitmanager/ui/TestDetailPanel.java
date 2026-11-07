@@ -17,6 +17,7 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.UIManager;
 import javax.swing.text.BadLocationException;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -54,6 +55,15 @@ public final class TestDetailPanel extends JPanel {
     private TestNode current;
     private Workspace workspace;
     private final Map<CaseResult, String> caseLabels = new IdentityHashMap<>();
+
+    public void applyTheme() {
+        Font base = UIManager.getFont("Label.font");
+        if (base != null) {
+            title.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 4f));
+        }
+        body.setFont(Ui.mono());
+        output.setFont(Ui.mono());
+    }
 
     public TestDetailPanel(UserActions actions) {
         super(new BorderLayout());
