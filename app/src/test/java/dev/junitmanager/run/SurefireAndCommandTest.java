@@ -64,20 +64,25 @@ class SurefireAndCommandTest {
     @Test
     void clipboardCommandIncludesCdAndTestSelector() {
         Path dir = temp.resolve("my module").toAbsolutePath().normalize();
-        String command = MavenCommands.clipboardCommand(dir, List.of(
+        List<String> args = List.of(
                 "-B",
                 "-Dstyle.color=always",
                 "-DtrimStackTrace=false",
                 "-Dsurefire.failIfNoSpecifiedTests=false",
                 "-Dtest=com.example.Calc$Div#divides",
-                "test"));
-        String mvn = "mvn test -Dtest=com.example.Calc$Div#divides -Dconfirm=console -DforkCount=0";
+                "test");
+        String cmd = MavenCommands.clipboardCommand(dir, args, MavenCommands.ClipboardShell.CMD);
+        String ps = MavenCommands.clipboardCommand(dir, args, MavenCommands.ClipboardShell.POWERSHELL);
+        String extras = " -Dconfirm=console -DforkCount=0";
+        String mvnCmd = "mvn test -Dtest=com.example.Calc$Div#divides" + extras;
+        String mvnPs = "mvn test '-Dtest=com.example.Calc$Div#divides'" + extras;
         if (MavenCommands.isWindows()) {
-            assertEquals("cd /d \"" + dir + "\" && " + mvn, command);
+            assertEquals("cd /d \"" + dir + "\" && " + mvnCmd, cmd);
         } else {
-            assertEquals("cd '" + dir + "' && " + mvn, command);
+            assertEquals("cd '" + dir + "' && " + mvnCmd, cmd);
         }
-        assertEquals("mvn test -Dconfirm=console -DforkCount=0", MavenCommands.clipboardCommand(null, List.of("-B", "test")));
+        assertEquals("Set-Location -LiteralPath '" + dir + "'; " + mvnPs, ps);
+        assertEquals("mvn test" + extras, MavenCommands.clipboardCommand(null, List.of("-B", "test"), MavenCommands.ClipboardShell.CMD));
     }
 
     private static String report(String name, String tag, String message, String trace) {

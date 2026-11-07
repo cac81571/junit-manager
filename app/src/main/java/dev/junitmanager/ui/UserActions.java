@@ -31,7 +31,9 @@ public interface UserActions {
 
     void copyName(TestNode node);
 
-    void copyTestCommand(TestNode node);
+    void copyTestCommandCmd(TestNode node);
+
+    void copyTestCommandPs(TestNode node);
 
     void reveal(TestNode node);
 

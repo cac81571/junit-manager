@@ -767,7 +767,8 @@ public final class TestExplorerPanel extends JPanel {
         if (node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE) {
             item(menu, "セレクタをコピー", () -> actions.copySelector(node));
         }
-        item(menu, "実行コマンドをコピー", () -> actions.copyTestCommand(node));
+        item(menu, "実行コマンド(cmd)", () -> actions.copyTestCommandCmd(node));
+        item(menu, "実行コマンド(ps)", () -> actions.copyTestCommandPs(node));
         item(menu, "フォルダを開く", () -> actions.reveal(node));
         menu.show(target, event.getX(), event.getY());
     }

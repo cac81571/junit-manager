@@ -402,7 +402,16 @@ public final class MainFrame extends JFrame implements UserActions {
     }
 
     @Override
-    public void copyTestCommand(TestNode node) {
+    public void copyTestCommandCmd(TestNode node) {
+        copyTestCommand(node, MavenCommands.ClipboardShell.CMD, "実行コマンド(cmd)をコピーしました");
+    }
+
+    @Override
+    public void copyTestCommandPs(TestNode node) {
+        copyTestCommand(node, MavenCommands.ClipboardShell.POWERSHELL, "実行コマンド(ps)をコピーしました");
+    }
+
+    private void copyTestCommand(TestNode node, MavenCommands.ClipboardShell shell, String okStatus) {
         if (workspace == null) {
             return;
         }
@@ -412,10 +421,10 @@ public final class MainFrame extends JFrame implements UserActions {
             setPlainStatus("コピーできる実行コマンドがありません");
             return;
         }
-        String command = MavenCommands.clipboardCommand(plan.workingDirectory(), plan.mavenArgs());
+        String command = MavenCommands.clipboardCommand(plan.workingDirectory(), plan.mavenArgs(), shell);
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(command), null);
-            setPlainStatus("実行コマンドをコピーしました");
+            setPlainStatus(okStatus);
         } catch (IllegalStateException ex) {
             setPlainStatus("クリップボードを使えませんでした");
         }

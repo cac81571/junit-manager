@@ -44,6 +44,7 @@
         <version>3.5.2</version>
         <configuration>
           <argLine>-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dconfirm=${confirm}</argLine>
+          <redirectTestOutputToFile>true</redirectTestOutputToFile>
         </configuration>
       </plugin>
     </plugins>

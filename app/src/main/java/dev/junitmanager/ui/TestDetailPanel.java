@@ -49,7 +49,8 @@ public final class TestDetailPanel extends JPanel {
     private final JButton runButton = new JButton("実行");
     private final JButton sourceButton = new JButton("ソースを表示");
     private final JButton copyButton = new JButton("セレクタをコピー");
-    private final JButton commandButton = new JButton("実行コマンドをコピー");
+    private final JButton commandCmdButton = new JButton("実行コマンド(cmd)");
+    private final JButton commandPsButton = new JButton("実行コマンド(ps)");
     private TestNode current;
     private Workspace workspace;
     private final Map<CaseResult, String> caseLabels = new IdentityHashMap<>();
@@ -183,13 +184,15 @@ public final class TestDetailPanel extends JPanel {
                 actions.copySelector(current);
             }
         });
-        commandButton.addActionListener(event -> actions.copyTestCommand(current));
+        commandCmdButton.addActionListener(event -> actions.copyTestCommandCmd(current));
+        commandPsButton.addActionListener(event -> actions.copyTestCommandPs(current));
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
         buttons.setOpaque(false);
         buttons.add(runButton);
         buttons.add(sourceButton);
         buttons.add(copyButton);
-        buttons.add(commandButton);
+        buttons.add(commandCmdButton);
+        buttons.add(commandPsButton);
         add(buttons, BorderLayout.SOUTH);
         show(null, null);
     }
@@ -211,7 +214,8 @@ public final class TestDetailPanel extends JPanel {
             outputBox.setVisible(false);
             sourceButton.setEnabled(false);
             copyButton.setEnabled(false);
-            commandButton.setEnabled(workspace != null);
+            commandCmdButton.setEnabled(workspace != null);
+            commandPsButton.setEnabled(workspace != null);
             runButton.setEnabled(workspace != null);
             return;
         }
@@ -221,7 +225,8 @@ public final class TestDetailPanel extends JPanel {
         stripe.setBackground(color(node.status()));
         sourceButton.setEnabled(node.sourceFile() != null || node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS);
         copyButton.setEnabled(node.kind() == TestKind.METHOD || node.kind() == TestKind.CLASS || node.kind() == TestKind.SUITE);
-        commandButton.setEnabled(true);
+        commandCmdButton.setEnabled(true);
+        commandPsButton.setEnabled(true);
         runButton.setEnabled(true);
         if (node.kind() == TestKind.METHOD) {
             showMethod(node);

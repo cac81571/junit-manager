@@ -26,12 +26,23 @@ public final class MavenCommands {
         return new Launch(command, directory, display);
     }
 
+    public enum ClipboardShell {
+        CMD, POWERSHELL
+    }
+
     /**
-     * コマンドプロンプト／シェルに貼り付けて実行できるコマンドを返す。
+     * シェルに貼り付けて実行できるコマンドを返す。
      * 作業ディレクトリへの {@code cd} と {@code mvn test} を連結する。
      */
-    public static String clipboardCommand(Path workingDirectory, List<String> mavenArgs) {
-        String mvn = testInvocation(mavenArgs);
+    public static String clipboardCommand(Path workingDirectory, List<String> mavenArgs, ClipboardShell shell) {
+        if (shell == ClipboardShell.POWERSHELL) {
+            return powershellClipboard(workingDirectory, mavenArgs);
+        }
+        return cmdClipboard(workingDirectory, mavenArgs);
+    }
+
+    private static String cmdClipboard(Path workingDirectory, List<String> mavenArgs) {
+        String mvn = testInvocation(mavenArgs, false);
         if (workingDirectory == null) {
             return mvn;
         }
@@ -42,18 +53,30 @@ public final class MavenCommands {
         return "cd " + quoteForShell(dir) + " && " + mvn;
     }
 
-    private static String testInvocation(List<String> mavenArgs) {
+    private static String powershellClipboard(Path workingDirectory, List<String> mavenArgs) {
+        String mvn = testInvocation(mavenArgs, true);
+        if (workingDirectory == null) {
+            return mvn;
+        }
+        String dir = workingDirectory.toAbsolutePath().normalize().toString().replace("'", "''");
+        return "Set-Location -LiteralPath '" + dir + "'; " + mvn;
+    }
+
+    private static String testInvocation(List<String> mavenArgs, boolean powerShell) {
         String selector = null;
         for (String arg : mavenArgs) {
             if (arg.startsWith("-Dtest=")) {
                 selector = arg.substring("-Dtest=".length());
             }
         }
-        String confirm = " -Dconfirm=console -DforkCount=0";
+        String extras = " -Dconfirm=console -DforkCount=0";
         if (selector == null || selector.isBlank()) {
-            return "mvn test" + confirm;
+            return "mvn test" + extras;
         }
-        return "mvn test -Dtest=" + selector + confirm;
+        if (powerShell) {
+            return "mvn test '-Dtest=" + selector.replace("'", "''") + "'" + extras;
+        }
+        return "mvn test -Dtest=" + selector + extras;
     }
 
     static String quoteForCmd(String value) {
